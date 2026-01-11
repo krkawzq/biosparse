@@ -100,18 +100,18 @@ def unbox_csr(typ, obj, c):
     c.pyapi.decref(empty_tuple)
     
     # 4. Extract pointer arrays from the tuple
+    # Note: tuple_getitem returns a borrowed reference, so we must NOT decref these
     values_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 0)
     indices_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 1)
     row_lens_arr = c.pyapi.tuple_getitem(ptr_tuple, 2)
-    
+
     # 5. Get data pointers from NumPy arrays
     csr_struct.values_ptrs = _get_numpy_data_ptr(c, values_ptrs_arr, csr_struct.values_ptrs.type)
     csr_struct.indices_ptrs = _get_numpy_data_ptr(c, indices_ptrs_arr, csr_struct.indices_ptrs.type)
     csr_struct.row_lens = _get_numpy_data_ptr(c, row_lens_arr, csr_struct.row_lens.type)
-    
-    c.pyapi.decref(values_ptrs_arr)
-    c.pyapi.decref(indices_ptrs_arr)
-    c.pyapi.decref(row_lens_arr)
+
+    # Only decref the tuple itself (which owns references to the arrays)
+    # DO NOT decref values_ptrs_arr, indices_ptrs_arr, row_lens_arr - they are borrowed refs
     c.pyapi.decref(ptr_tuple)
     
     # 6. Set meminfo to NULL (Python owns the data)
@@ -247,18 +247,18 @@ def unbox_csc(typ, obj, c):
     c.pyapi.decref(empty_tuple)
     
     # 4. Extract pointer arrays
+    # Note: tuple_getitem returns a borrowed reference, so we must NOT decref these
     values_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 0)
     indices_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 1)
     col_lens_arr = c.pyapi.tuple_getitem(ptr_tuple, 2)
-    
+
     # 5. Get data pointers
     csc_struct.values_ptrs = _get_numpy_data_ptr(c, values_ptrs_arr, csc_struct.values_ptrs.type)
     csc_struct.indices_ptrs = _get_numpy_data_ptr(c, indices_ptrs_arr, csc_struct.indices_ptrs.type)
     csc_struct.col_lens = _get_numpy_data_ptr(c, col_lens_arr, csc_struct.col_lens.type)
-    
-    c.pyapi.decref(values_ptrs_arr)
-    c.pyapi.decref(indices_ptrs_arr)
-    c.pyapi.decref(col_lens_arr)
+
+    # Only decref the tuple itself (which owns references to the arrays)
+    # DO NOT decref values_ptrs_arr, indices_ptrs_arr, col_lens_arr - they are borrowed refs
     c.pyapi.decref(ptr_tuple)
     
     # 6. Set meminfo to NULL (Python owns the data)

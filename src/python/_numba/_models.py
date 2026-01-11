@@ -104,25 +104,26 @@ class CSCModel(models.StructModel):
 @register_model(CSRIteratorType)
 class CSRIteratorModel(models.StructModel):
     """Memory layout for CSR iterator.
-    
+
     The iterator maintains pointers to the parent CSR's data and tracks
-    the current position.
-    
+    the current position via a pointer to allow mutation across iterations.
+
     Fields:
         values_ptrs: Reference to parent's values pointer array
         indices_ptrs: Reference to parent's indices pointer array
         row_lens: Reference to parent's row lengths array
         nrows: Total number of rows (from parent)
-        current_index: Current iteration position
+        index_ptr: Pointer to current iteration position (allows mutation)
     """
-    
+
     def __init__(self, dmm, fe_type):
         members = [
             ('values_ptrs', types.CPointer(types.CPointer(fe_type.csr_type.dtype))),
             ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
             ('row_lens', types.CPointer(types.intp)),
             ('nrows', types.int64),
-            ('current_index', types.int64),
+            # Use a pointer so we can mutate the index across iterations
+            ('index_ptr', types.CPointer(types.int64)),
         ]
         super().__init__(dmm, fe_type, members)
 
@@ -130,24 +131,25 @@ class CSRIteratorModel(models.StructModel):
 @register_model(CSCIteratorType)
 class CSCIteratorModel(models.StructModel):
     """Memory layout for CSC iterator.
-    
+
     Similar to CSRIteratorModel but for columns.
-    
+
     Fields:
         values_ptrs: Reference to parent's values pointer array
         indices_ptrs: Reference to parent's indices pointer array
         col_lens: Reference to parent's column lengths array
         ncols: Total number of columns (from parent)
-        current_index: Current iteration position
+        index_ptr: Pointer to current iteration position (allows mutation)
     """
-    
+
     def __init__(self, dmm, fe_type):
         members = [
             ('values_ptrs', types.CPointer(types.CPointer(fe_type.csc_type.dtype))),
             ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
             ('col_lens', types.CPointer(types.intp)),
             ('ncols', types.int64),
-            ('current_index', types.int64),
+            # Use a pointer so we can mutate the index across iterations
+            ('index_ptr', types.CPointer(types.int64)),
         ]
         super().__init__(dmm, fe_type, members)
 
@@ -183,10 +185,10 @@ make_attribute_wrapper(CSRIteratorType, 'values_ptrs', 'values_ptrs')
 make_attribute_wrapper(CSRIteratorType, 'indices_ptrs', 'indices_ptrs')
 make_attribute_wrapper(CSRIteratorType, 'row_lens', 'row_lens')
 make_attribute_wrapper(CSRIteratorType, 'nrows', 'nrows')
-make_attribute_wrapper(CSRIteratorType, 'current_index', 'current_index')
+make_attribute_wrapper(CSRIteratorType, 'index_ptr', 'index_ptr')
 
 make_attribute_wrapper(CSCIteratorType, 'values_ptrs', 'values_ptrs')
 make_attribute_wrapper(CSCIteratorType, 'indices_ptrs', 'indices_ptrs')
 make_attribute_wrapper(CSCIteratorType, 'col_lens', 'col_lens')
 make_attribute_wrapper(CSCIteratorType, 'ncols', 'ncols')
-make_attribute_wrapper(CSCIteratorType, 'current_index', 'current_index')
+make_attribute_wrapper(CSCIteratorType, 'index_ptr', 'index_ptr')

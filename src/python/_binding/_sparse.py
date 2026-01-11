@@ -429,13 +429,14 @@ class CSR:
         return self.__class__(out_handle[0], owns_handle=True)
 
     def __getitem__(self, key):
-        """Implements slicing: support 1D and 2D slices.
+        """Implements slicing and single element access.
 
         Examples:
             csr[10:20]       # Row slicing
             csr[10:20, :]    # Row slicing
             csr[:, 5:15]     # Column slicing
             csr[10:20, 5:15] # Row and column slicing
+            csr[i, j]        # Single element access (returns float)
         """
         if isinstance(key, slice):
             start = key.start or 0
@@ -443,6 +444,26 @@ class CSR:
             return self.slice_rows(start, stop)
         elif isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
+
+            # Single element access: both are integers
+            if isinstance(row_key, int) and isinstance(col_key, int):
+                # Bounds check
+                if row_key < 0 or row_key >= self.nrows:
+                    raise IndexError(f"row index {row_key} out of bounds [0, {self.nrows})")
+                if col_key < 0 or col_key >= self.ncols:
+                    raise IndexError(f"column index {col_key} out of bounds [0, {self.ncols})")
+
+                # Get the row data
+                values, indices = self.row_to_numpy(row_key)
+
+                # Binary search for the column
+                pos = np.searchsorted(indices, col_key)
+                if pos < len(indices) and indices[pos] == col_key:
+                    return float(values[pos])
+                else:
+                    return 0.0  # Sparse position returns 0
+
+            # Slicing: at least one is a slice
             result = self
 
             # Handle row slicing
@@ -666,6 +687,74 @@ class CSR:
         result = getattr(lib, f"{cls._prefix}_hstack")(handles, len(matrices), out_handle)
         FfiResult.check(result, "hstack")
         return cls(out_handle[0], owns_handle=True)
+
+    # =========================
+    # Simplified access methods
+    # =========================
+
+    def row(self, row: int, copy: bool = False) -> Tuple["NDArray", "NDArray"]:
+        """Simplified row access method, equivalent to row_to_numpy().
+
+        Args:
+            row (int): Row index.
+            copy (bool): Whether to copy (True) or not (False).
+
+        Returns:
+            Tuple[NDArray, NDArray]: (values, indices) arrays for the row.
+        """
+        return self.row_to_numpy(row, copy)
+
+    def col(self, col: int) -> Tuple["NDArray", "NDArray"]:
+        """Extract column data (non-contiguous dimension, requires construction).
+
+        Returns:
+            Tuple[NDArray, NDArray]: (values, row_indices) - nonzero values
+                                      and corresponding row indices for this column.
+        """
+        # Bounds check
+        if col < 0 or col >= self.ncols:
+            raise IndexError(f"column index {col} out of bounds [0, {self.ncols})")
+
+        # Collect values and row indices
+        values_list = []
+        indices_list = []
+
+        # Traverse all rows and use binary search
+        for i in range(self.nrows):
+            vals, idxs = self.row_to_numpy(i)
+            # Binary search for the column
+            pos = np.searchsorted(idxs, col)
+            if pos < len(idxs) and idxs[pos] == col:
+                values_list.append(vals[pos])
+                indices_list.append(i)
+
+        return (
+            np.array(values_list, dtype=self._value_dtype),
+            np.array(indices_list, dtype=np.int64),
+        )
+
+    def get(self, row: int, col: int, default=0.0):
+        """Safe element access with default value for out-of-bounds or sparse positions.
+
+        Args:
+            row (int): Row index.
+            col (int): Column index.
+            default: Value to return if out of bounds or position is sparse (default 0.0).
+
+        Returns:
+            float: Element value or default.
+        """
+        # Bounds check - return default instead of raising exception
+        if row < 0 or row >= self.nrows or col < 0 or col >= self.ncols:
+            return default
+
+        # Get row data and binary search
+        values, indices = self.row_to_numpy(row)
+        pos = np.searchsorted(indices, col)
+
+        if pos < len(indices) and indices[pos] == col:
+            return float(values[pos])
+        return default
 
     def __repr__(self) -> str:
         """String representation, showing class, shape, nnz and density."""
@@ -1111,10 +1200,10 @@ class CSC:
         return self.__class__(out_handle[0], owns_handle=True)
 
     def __getitem__(self, key):
-        """Supports matrix slicing syntax (columns-first for 1D).
+        """Supports matrix slicing and single element access.
 
         Returns:
-            CSC: Sliced matrix.
+            CSC or float: Sliced matrix or single element value.
         """
         if isinstance(key, slice):
             start = key.start or 0
@@ -1122,6 +1211,26 @@ class CSC:
             return self.slice_cols(start, stop)
         elif isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
+
+            # Single element access: both are integers
+            if isinstance(row_key, int) and isinstance(col_key, int):
+                # Bounds check
+                if row_key < 0 or row_key >= self.nrows:
+                    raise IndexError(f"row index {row_key} out of bounds [0, {self.nrows})")
+                if col_key < 0 or col_key >= self.ncols:
+                    raise IndexError(f"column index {col_key} out of bounds [0, {self.ncols})")
+
+                # Get the column data (contiguous dimension for CSC)
+                values, indices = self.col_to_numpy(col_key)
+
+                # Binary search for the row
+                pos = np.searchsorted(indices, row_key)
+                if pos < len(indices) and indices[pos] == row_key:
+                    return float(values[pos])
+                else:
+                    return 0.0  # Sparse position returns 0
+
+            # Slicing: at least one is a slice
             result = self
 
             if isinstance(row_key, slice):
@@ -1343,6 +1452,74 @@ class CSC:
         result = getattr(lib, f"{cls._prefix}_hstack")(handles, len(matrices), out_handle)
         FfiResult.check(result, "hstack")
         return cls(out_handle[0], owns_handle=True)
+
+    # =========================
+    # Simplified access methods
+    # =========================
+
+    def col(self, col: int, copy: bool = False) -> Tuple["NDArray", "NDArray"]:
+        """Simplified column access method, equivalent to col_to_numpy().
+
+        Args:
+            col (int): Column index.
+            copy (bool): Whether to copy (True) or not (False).
+
+        Returns:
+            Tuple[NDArray, NDArray]: (values, indices) arrays for the column.
+        """
+        return self.col_to_numpy(col, copy)
+
+    def row(self, row: int) -> Tuple["NDArray", "NDArray"]:
+        """Extract row data (non-contiguous dimension, requires construction).
+
+        Returns:
+            Tuple[NDArray, NDArray]: (values, col_indices) - nonzero values
+                                      and corresponding column indices for this row.
+        """
+        # Bounds check
+        if row < 0 or row >= self.nrows:
+            raise IndexError(f"row index {row} out of bounds [0, {self.nrows})")
+
+        # Collect values and column indices
+        values_list = []
+        indices_list = []
+
+        # Traverse all columns and use binary search
+        for j in range(self.ncols):
+            vals, idxs = self.col_to_numpy(j)
+            # Binary search for the row
+            pos = np.searchsorted(idxs, row)
+            if pos < len(idxs) and idxs[pos] == row:
+                values_list.append(vals[pos])
+                indices_list.append(j)
+
+        return (
+            np.array(values_list, dtype=self._value_dtype),
+            np.array(indices_list, dtype=np.int64),
+        )
+
+    def get(self, row: int, col: int, default=0.0):
+        """Safe element access with default value for out-of-bounds or sparse positions.
+
+        Args:
+            row (int): Row index.
+            col (int): Column index.
+            default: Value to return if out of bounds or position is sparse (default 0.0).
+
+        Returns:
+            float: Element value or default.
+        """
+        # Bounds check - return default instead of raising exception
+        if row < 0 or row >= self.nrows or col < 0 or col >= self.ncols:
+            return default
+
+        # Get column data (contiguous dimension for CSC) and binary search
+        values, indices = self.col_to_numpy(col)
+        pos = np.searchsorted(indices, row)
+
+        if pos < len(indices) and indices[pos] == row:
+            return float(values[pos])
+        return default
 
     def __repr__(self) -> str:
         """String representation, with shape, nnz, and density."""

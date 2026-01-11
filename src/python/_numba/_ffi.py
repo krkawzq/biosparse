@@ -1,37 +1,32 @@
 """FFI integration for Numba.
 
-This module registers the CFFI library with Numba and provides intrinsic
-functions to call FFI functions from JIT-compiled code.
+This module provides intrinsic functions to call FFI functions from 
+JIT-compiled code.
+
+Note: We use direct LLVM function declarations instead of CFFI registration,
+as our dynamic library is loaded via cffi.dlopen() and functions are resolved
+by symbol name at compile time.
 """
 
 from numba import types
 from numba.core import cgutils
-from numba.core.typing import cffi_utils
 from numba.extending import intrinsic
 import llvmlite.ir as lir
 
 
 # =============================================================================
-# Register CFFI Module
+# FFI Library Access
 # =============================================================================
 
-def _register_ffi_module():
-    """Register the CFFI library module with Numba.
-    
-    This must be called before any FFI functions can be used in JIT code.
-    """
-    try:
-        from .._binding._cffi import ffi, lib
-        cffi_utils.register_module(lib)
-        return True
-    except Exception as e:
-        import warnings
-        warnings.warn(f"Failed to register CFFI module with Numba: {e}")
-        return False
+# The CFFI library is available for fallback but we don't register it with Numba
+# Instead, we declare external functions directly in LLVM IR
+_FFI_AVAILABLE = False
 
-
-# Register on module import
-_FFI_REGISTERED = _register_ffi_module()
+try:
+    from .._binding._cffi import ffi, lib
+    _FFI_AVAILABLE = True
+except ImportError:
+    pass
 
 
 # =============================================================================
@@ -104,52 +99,62 @@ def _alloca_voidptr_array(typingctx, n_ty):
 # =============================================================================
 
 @intrinsic
-def _make_array_from_ptr(typingctx, dtype_ty, ptr_ty, length_ty):
-    """Create a 1D Numba array from a pointer and length.
-    
-    This is the core primitive for zero-copy array views.
-    
-    Args:
-        dtype: Numba dtype (e.g., types.float64)
-        ptr: Pointer to data
-        length: Number of elements
-        
-    Returns:
-        1D Numba array view (no copy)
-    """
-    if not isinstance(dtype_ty, types.DTypeSpec):
-        return None
-    
-    dtype = dtype_ty.dtype
+def _make_array_from_ptr_f64(typingctx, ptr_ty, length_ty):
+    """Create a 1D float64 array from a pointer and length."""
+    dtype = types.float64
     array_type = types.Array(dtype, 1, 'C')
-    sig = array_type(dtype_ty, ptr_ty, length_ty)
+    sig = array_type(ptr_ty, length_ty)
     
     def codegen(context, builder, signature, args):
-        _, ptr, length = args
-        
-        # Create array struct
+        ptr, length = args
         ary = context.make_array(array_type)(context, builder)
-        
-        # Get LLVM type for itemsize calculation
         llvm_dtype = context.get_data_type(dtype)
         itemsize = context.get_constant(types.intp, context.get_abi_sizeof(llvm_dtype))
-        
-        # Set shape to (length,)
         shape = cgutils.pack_array(builder, [length])
         strides = cgutils.pack_array(builder, [itemsize])
-        
-        # Populate array struct (no meminfo = no ownership)
-        context.populate_array(
-            ary,
-            data=builder.bitcast(ptr, ary.data.type),
-            shape=shape,
-            strides=strides,
-            itemsize=itemsize,
-            meminfo=None
-        )
-        
+        context.populate_array(ary, data=builder.bitcast(ptr, ary.data.type),
+                              shape=shape, strides=strides, itemsize=itemsize, meminfo=None)
         return ary._getvalue()
+    return sig, codegen
+
+
+@intrinsic
+def _make_array_from_ptr_f32(typingctx, ptr_ty, length_ty):
+    """Create a 1D float32 array from a pointer and length."""
+    dtype = types.float32
+    array_type = types.Array(dtype, 1, 'C')
+    sig = array_type(ptr_ty, length_ty)
     
+    def codegen(context, builder, signature, args):
+        ptr, length = args
+        ary = context.make_array(array_type)(context, builder)
+        llvm_dtype = context.get_data_type(dtype)
+        itemsize = context.get_constant(types.intp, context.get_abi_sizeof(llvm_dtype))
+        shape = cgutils.pack_array(builder, [length])
+        strides = cgutils.pack_array(builder, [itemsize])
+        context.populate_array(ary, data=builder.bitcast(ptr, ary.data.type),
+                              shape=shape, strides=strides, itemsize=itemsize, meminfo=None)
+        return ary._getvalue()
+    return sig, codegen
+
+
+@intrinsic
+def _make_array_from_ptr_i64(typingctx, ptr_ty, length_ty):
+    """Create a 1D int64 array from a pointer and length."""
+    dtype = types.int64
+    array_type = types.Array(dtype, 1, 'C')
+    sig = array_type(ptr_ty, length_ty)
+    
+    def codegen(context, builder, signature, args):
+        ptr, length = args
+        ary = context.make_array(array_type)(context, builder)
+        llvm_dtype = context.get_data_type(dtype)
+        itemsize = context.get_constant(types.intp, context.get_abi_sizeof(llvm_dtype))
+        shape = cgutils.pack_array(builder, [length])
+        strides = cgutils.pack_array(builder, [itemsize])
+        context.populate_array(ary, data=builder.bitcast(ptr, ary.data.type),
+                              shape=shape, strides=strides, itemsize=itemsize, meminfo=None)
+        return ary._getvalue()
     return sig, codegen
 
 
@@ -321,7 +326,33 @@ def _make_ffi_converter_1arg(fname):
             return builder.call(fn, [handle, out_ptr])
         
         return sig, codegen
-    
+
+    return _ffi_call
+
+
+def _make_ffi_clone(fname):
+    """Factory for FFI clone functions that return a handle directly.
+
+    Pattern: void* func(void* handle)
+    """
+    @intrinsic
+    def _ffi_call(typingctx, handle_ty):
+        sig = types.voidptr(types.voidptr)
+
+        def codegen(context, builder, sig, args):
+            [handle] = args
+
+            # void* func(void* handle)
+            fnty = lir.FunctionType(
+                lir.IntType(8).as_pointer(),
+                [lir.IntType(8).as_pointer()]
+            )
+            fn = cgutils.get_or_insert_function(builder.module, fnty, fname)
+
+            return builder.call(fn, [handle])
+
+        return sig, codegen
+
     return _ffi_call
 
 
@@ -348,7 +379,7 @@ ffi_csr_f64_slice_rows = _make_ffi_creator_2args("csr_f64_slice_rows")
 ffi_csr_f64_slice_cols = _make_ffi_creator_2args("csr_f64_slice_cols")
 ffi_csr_f64_hstack = _make_ffi_creator_array("csr_f64_hstack")
 ffi_csr_f64_vstack = _make_ffi_creator_array("csr_f64_vstack")
-ffi_csr_f64_clone = _make_ffi_converter_1arg("csr_f64_clone")
+ffi_csr_f64_clone = _make_ffi_clone("csr_f64_clone")
 
 # CSR F64 - Converters
 ffi_csc_f64_from_csr = _make_ffi_converter_1arg("csc_f64_from_csr")
@@ -372,7 +403,7 @@ ffi_csr_f32_slice_rows = _make_ffi_creator_2args("csr_f32_slice_rows")
 ffi_csr_f32_slice_cols = _make_ffi_creator_2args("csr_f32_slice_cols")
 ffi_csr_f32_hstack = _make_ffi_creator_array("csr_f32_hstack")
 ffi_csr_f32_vstack = _make_ffi_creator_array("csr_f32_vstack")
-ffi_csr_f32_clone = _make_ffi_converter_1arg("csr_f32_clone")
+ffi_csr_f32_clone = _make_ffi_clone("csr_f32_clone")
 
 # CSR F32 - Converters
 ffi_csc_f32_from_csr = _make_ffi_converter_1arg("csc_f32_from_csr")
@@ -396,7 +427,7 @@ ffi_csc_f64_slice_rows = _make_ffi_creator_2args("csc_f64_slice_rows")
 ffi_csc_f64_slice_cols = _make_ffi_creator_2args("csc_f64_slice_cols")
 ffi_csc_f64_hstack = _make_ffi_creator_array("csc_f64_hstack")
 ffi_csc_f64_vstack = _make_ffi_creator_array("csc_f64_vstack")
-ffi_csc_f64_clone = _make_ffi_converter_1arg("csc_f64_clone")
+ffi_csc_f64_clone = _make_ffi_clone("csc_f64_clone")
 
 # CSC F64 - Converters
 ffi_csr_f64_from_csc = _make_ffi_converter_1arg("csr_f64_from_csc")
@@ -420,7 +451,7 @@ ffi_csc_f32_slice_rows = _make_ffi_creator_2args("csc_f32_slice_rows")
 ffi_csc_f32_slice_cols = _make_ffi_creator_2args("csc_f32_slice_cols")
 ffi_csc_f32_hstack = _make_ffi_creator_array("csc_f32_hstack")
 ffi_csc_f32_vstack = _make_ffi_creator_array("csc_f32_vstack")
-ffi_csc_f32_clone = _make_ffi_converter_1arg("csc_f32_clone")
+ffi_csc_f32_clone = _make_ffi_clone("csc_f32_clone")
 
 # CSC F32 - Converters
 ffi_csr_f32_from_csc = _make_ffi_converter_1arg("csr_f32_from_csc")
