@@ -3,5 +3,10 @@ name = "scl-core"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.10"
+dependencies = [
+    "cffi>=2.0.0",
+    "numba>=0.63.1",
+    "numpy>=2.2.6",
+    "scipy>=1.15.3",
+]
