@@ -1,69 +1,148 @@
 """Numba type definitions for CSR/CSC sparse matrices.
 
-This module defines the Numba type system representations for sparse matrices.
+This module defines the complete type system for Numba JIT compilation of
+sparse matrix operations.
 """
 
 from numba import types
-from numba.core import cgutils
-from numba.extending import typeof_impl, register_model, models, make_attribute_wrapper
+from numba.extending import typeof_impl
 
 # Import the Python classes for type registration
 from .._binding._sparse import CSR, CSC, CSRF32, CSRF64, CSCF32, CSCF64
 
 
 # =============================================================================
+# Forward declaration of iterator types (defined at end to avoid circular import)
+# =============================================================================
+
+class CSRIteratorType(types.SimpleIteratorType):
+    """Iterator type for CSR row iteration.
+    
+    This iterator yields (values, indices) tuples for each row.
+    """
+    pass
+
+
+class CSCIteratorType(types.SimpleIteratorType):
+    """Iterator type for CSC column iteration.
+    
+    This iterator yields (values, indices) tuples for each column.
+    """
+    pass
+
+
+# =============================================================================
 # CSR Type
 # =============================================================================
 
-class CSRType(types.Type):
+class CSRType(types.IterableType):
     """Numba type for CSR sparse matrix.
     
-    This type represents a CSR matrix in Numba's type system.
-    The actual data layout is defined in CSRModel.
+    This type represents a CSR (Compressed Sparse Row) matrix in Numba's
+    type system. It supports iteration over rows.
+    
+    Attributes:
+        dtype: The data type of matrix values (float32 or float64)
     """
     
     def __init__(self, dtype):
+        """Initialize CSR type.
+        
+        Args:
+            dtype: Numba type for matrix values (types.float32 or types.float64)
+        """
         self.dtype = dtype
         super().__init__(name=f'CSR[{dtype}]')
     
     @property
     def key(self):
-        return self.dtype
+        """Unique key for type identity."""
+        return ('CSRType', self.dtype)
     
     def __hash__(self):
-        return hash(('CSRType', self.dtype))
+        return hash(self.key)
     
     def __eq__(self, other):
         if isinstance(other, CSRType):
             return self.dtype == other.dtype
         return False
+    
+    @property
+    def iterator_type(self):
+        """Return the iterator type for this CSR type."""
+        return CSRIteratorType(self)
+    
+    @property
+    def ffi_prefix(self):
+        """Return the FFI function prefix for this type.
+        
+        Returns:
+            'csr_f32' for float32, 'csr_f64' for float64
+        """
+        if self.dtype == types.float32:
+            return 'csr_f32'
+        elif self.dtype == types.float64:
+            return 'csr_f64'
+        else:
+            raise ValueError(f"Unsupported dtype: {self.dtype}")
 
 
-class CSCType(types.Type):
+class CSCType(types.IterableType):
     """Numba type for CSC sparse matrix.
     
-    This type represents a CSC matrix in Numba's type system.
-    The actual data layout is defined in CSCModel.
+    This type represents a CSC (Compressed Sparse Column) matrix in Numba's
+    type system. It supports iteration over columns.
+    
+    Attributes:
+        dtype: The data type of matrix values (float32 or float64)
     """
     
     def __init__(self, dtype):
+        """Initialize CSC type.
+        
+        Args:
+            dtype: Numba type for matrix values (types.float32 or types.float64)
+        """
         self.dtype = dtype
         super().__init__(name=f'CSC[{dtype}]')
     
     @property
     def key(self):
-        return self.dtype
+        """Unique key for type identity."""
+        return ('CSCType', self.dtype)
     
     def __hash__(self):
-        return hash(('CSCType', self.dtype))
+        return hash(self.key)
     
     def __eq__(self, other):
         if isinstance(other, CSCType):
             return self.dtype == other.dtype
         return False
+    
+    @property
+    def iterator_type(self):
+        """Return the iterator type for this CSC type."""
+        return CSCIteratorType(self)
+    
+    @property
+    def ffi_prefix(self):
+        """Return the FFI function prefix for this type.
+        
+        Returns:
+            'csc_f32' for float32, 'csc_f64' for float64
+        """
+        if self.dtype == types.float32:
+            return 'csc_f32'
+        elif self.dtype == types.float64:
+            return 'csc_f64'
+        else:
+            raise ValueError(f"Unsupported dtype: {self.dtype}")
 
 
+# =============================================================================
 # Concrete type instances
+# =============================================================================
+
 CSRFloat32Type = CSRType(types.float32)
 CSRFloat64Type = CSRType(types.float64)
 CSCFloat32Type = CSCType(types.float32)
@@ -99,86 +178,39 @@ def typeof_cscf64(val, c):
 
 
 # =============================================================================
-# Data Models: Memory layout in compiled code
+# Iterator Type Implementation (complete definition)
 # =============================================================================
 
-@register_model(CSRType)
-class CSRModel(models.StructModel):
-    """Memory layout for CSR in compiled code.
-    
-    This struct is what Numba actually works with during JIT compilation.
-    It contains:
-        - handle: The FFI handle (for calling FFI functions)
-        - meminfo: NRT memory info (for reference counting and destruction)
-        - nrows, ncols: Matrix dimensions
-        - values_ptrs: Array of pointers to row value arrays
-        - indices_ptrs: Array of pointers to row index arrays  
-        - row_lens: Array of row lengths (number of non-zeros per row)
-    """
-    
-    def __init__(self, dmm, fe_type):
-        members = [
-            # FFI handle (needed for FFI calls like hstack, slice, etc.)
-            ('handle', types.voidptr),
-            # NRT memory info for lifetime management
-            ('meminfo', types.MemInfoPointer(types.voidptr)),
-            # Dimensions
-            ('nrows', types.int64),
-            ('ncols', types.int64),
-            ('nnz', types.int64),
-            # Pointer arrays for fast row access
-            # values_ptrs[i] points to the values of row i
-            ('values_ptrs', types.CPointer(types.CPointer(fe_type.dtype))),
-            # indices_ptrs[i] points to the column indices of row i
-            ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
-            # row_lens[i] is the number of non-zeros in row i
-            ('row_lens', types.CPointer(types.intp)),
-        ]
-        super().__init__(dmm, fe_type, members)
+def _init_csr_iterator_type(self, csr_type):
+    """Initialize CSR iterator type."""
+    self.csr_type = csr_type
+    # Each iteration yields (values_array, indices_array)
+    yield_type = types.Tuple([
+        types.Array(csr_type.dtype, 1, 'C'),
+        types.Array(types.int64, 1, 'C'),
+    ])
+    types.SimpleIteratorType.__init__(
+        self, 
+        name=f'CSRIterator[{csr_type.dtype}]',
+        yield_type=yield_type
+    )
 
 
-@register_model(CSCType)
-class CSCModel(models.StructModel):
-    """Memory layout for CSC in compiled code.
-    
-    Similar to CSRModel but organized by columns.
-    """
-    
-    def __init__(self, dmm, fe_type):
-        members = [
-            ('handle', types.voidptr),
-            ('meminfo', types.MemInfoPointer(types.voidptr)),
-            ('nrows', types.int64),
-            ('ncols', types.int64),
-            ('nnz', types.int64),
-            # col_ptrs[j] points to the values of column j
-            ('values_ptrs', types.CPointer(types.CPointer(fe_type.dtype))),
-            # indices_ptrs[j] points to the row indices of column j
-            ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
-            # col_lens[j] is the number of non-zeros in column j
-            ('col_lens', types.CPointer(types.intp)),
-        ]
-        super().__init__(dmm, fe_type, members)
+def _init_csc_iterator_type(self, csc_type):
+    """Initialize CSC iterator type."""
+    self.csc_type = csc_type
+    # Each iteration yields (values_array, indices_array)
+    yield_type = types.Tuple([
+        types.Array(csc_type.dtype, 1, 'C'),
+        types.Array(types.int64, 1, 'C'),
+    ])
+    types.SimpleIteratorType.__init__(
+        self,
+        name=f'CSCIterator[{csc_type.dtype}]',
+        yield_type=yield_type
+    )
 
 
-# =============================================================================
-# Attribute Wrappers: Allow accessing struct fields as attributes
-# =============================================================================
-
-# CSR attributes
-make_attribute_wrapper(CSRType, 'handle', 'handle')
-make_attribute_wrapper(CSRType, 'nrows', 'nrows')
-make_attribute_wrapper(CSRType, 'ncols', 'ncols')
-make_attribute_wrapper(CSRType, 'nnz', 'nnz')
-make_attribute_wrapper(CSRType, 'values_ptrs', 'values_ptrs')
-make_attribute_wrapper(CSRType, 'indices_ptrs', 'indices_ptrs')
-make_attribute_wrapper(CSRType, 'row_lens', 'row_lens')
-
-# CSC attributes
-make_attribute_wrapper(CSCType, 'handle', 'handle')
-make_attribute_wrapper(CSCType, 'nrows', 'nrows')
-make_attribute_wrapper(CSCType, 'ncols', 'ncols')
-make_attribute_wrapper(CSCType, 'nnz', 'nnz')
-make_attribute_wrapper(CSCType, 'values_ptrs', 'values_ptrs')
-make_attribute_wrapper(CSCType, 'indices_ptrs', 'indices_ptrs')
-make_attribute_wrapper(CSCType, 'col_lens', 'col_lens')
+# Apply the initializers
+CSRIteratorType.__init__ = _init_csr_iterator_type
+CSCIteratorType.__init__ = _init_csc_iterator_type

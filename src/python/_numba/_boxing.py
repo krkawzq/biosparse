@@ -1,11 +1,54 @@
+"""Boxing and unboxing for CSR/CSC types.
+
+This module implements the conversion between Python objects and Numba's
+internal representation.
+"""
+
 import numpy as np
 from numba import types
 from numba.core import cgutils
 from numba.extending import unbox, box, NativeValue
 
-from ._types import CSRType, CSCType, CSRFloat32Type, CSRFloat64Type, CSCFloat32Type, CSCFloat64Type
-from .._binding._sparse import CSRF32, CSRF64, CSCF32, CSCF64
-from .._binding._cffi import ffi, lib
+from ._types import CSRType, CSCType
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def _get_numpy_data_ptr(c, arr_obj, target_ptr_type):
+    """Extract data pointer from a NumPy array object.
+    
+    Args:
+        c: Unboxing context
+        arr_obj: Python NumPy array object (LLVM value)
+        target_ptr_type: Target LLVM pointer type
+        
+    Returns:
+        LLVM pointer value
+    """
+    # Get arr.ctypes.data as integer
+    ctypes_obj = c.pyapi.object_getattr_string(arr_obj, "ctypes")
+    data_obj = c.pyapi.object_getattr_string(ctypes_obj, "data")
+    data_int = c.pyapi.long_as_longlong(data_obj)
+    c.pyapi.decref(data_obj)
+    c.pyapi.decref(ctypes_obj)
+    
+    # Convert integer to typed pointer
+    return c.builder.inttoptr(data_int, target_ptr_type)
+
+
+def _get_module_path():
+    """Dynamically determine the correct module path for sparse matrices.
+    
+    Returns the module path string that can be used to import sparse types.
+    """
+    # This will be evaluated at box time in the Python interpreter
+    import sys
+    if 'scl' in sys.modules:
+        return "scl._binding._sparse"
+    else:
+        return "python._binding._sparse"
 
 
 # =============================================================================
@@ -14,28 +57,28 @@ from .._binding._cffi import ffi, lib
 
 @unbox(CSRType)
 def unbox_csr(typ, obj, c):
-    """Convert a Python CSR object to Numba's internal representation.
+    """Convert a Python CSR object to Numba's internal CSRModel.
     
-    This is called when a Python CSR is passed to a JIT function.
-    We extract all the data pointers once, avoiding repeated FFI calls in loops.
+    This extracts all necessary data from the Python object for efficient
+    access in JIT-compiled code.
     
     Args:
-        typ: The Numba type (CSRType)
-        obj: The Python object (LLVM value pointing to PyObject*)
+        typ: The Numba CSRType
+        obj: The Python CSR object (LLVM value pointing to PyObject*)
         c: The unboxing context
-    
+        
     Returns:
-        NativeValue containing the CSR struct
+        NativeValue containing the CSRModel struct
     """
     csr_struct = cgutils.create_struct_proxy(typ)(c.context, c.builder)
     
-    # Get handle_as_int from Python object
+    # 1. Extract handle as integer
     handle_obj = c.pyapi.object_getattr_string(obj, "handle_as_int")
     handle_int = c.pyapi.long_as_longlong(handle_obj)
     c.pyapi.decref(handle_obj)
     csr_struct.handle = c.builder.inttoptr(handle_int, cgutils.voidptr_t)
     
-    # Get dimensions
+    # 2. Extract dimensions
     nrows_obj = c.pyapi.object_getattr_string(obj, "nrows")
     ncols_obj = c.pyapi.object_getattr_string(obj, "ncols")
     nnz_obj = c.pyapi.object_getattr_string(obj, "nnz")
@@ -48,21 +91,37 @@ def unbox_csr(typ, obj, c):
     c.pyapi.decref(ncols_obj)
     c.pyapi.decref(nnz_obj)
     
-    # For now, set pointer arrays to NULL
-    # TODO: Call _prepare_numba_pointers() and extract the arrays
-    null_voidptr = c.context.get_constant_null(types.voidptr)
-    csr_struct.values_ptrs = c.builder.bitcast(null_voidptr, 
-        csr_struct.values_ptrs.type)
-    csr_struct.indices_ptrs = c.builder.bitcast(null_voidptr,
-        csr_struct.indices_ptrs.type)
-    csr_struct.row_lens = c.builder.bitcast(null_voidptr,
-        csr_struct.row_lens.type)
+    # 3. Call _prepare_numba_pointers() to get pointer arrays
+    # This returns (values_ptrs, indices_ptrs, row_lens) as NumPy arrays
+    prepare_fn = c.pyapi.object_getattr_string(obj, "_prepare_numba_pointers")
+    empty_tuple = c.pyapi.tuple_new(0)
+    ptr_tuple = c.pyapi.call(prepare_fn, empty_tuple)
+    c.pyapi.decref(prepare_fn)
+    c.pyapi.decref(empty_tuple)
     
-    # Set meminfo to NULL (Python object owns the data)
-    null_ptr = c.context.get_constant_null(types.MemInfoPointer(types.voidptr))
-    csr_struct.meminfo = null_ptr
+    # 4. Extract pointer arrays from the tuple
+    values_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 0)
+    indices_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 1)
+    row_lens_arr = c.pyapi.tuple_getitem(ptr_tuple, 2)
     
-    # Check for errors
+    # 5. Get data pointers from NumPy arrays
+    csr_struct.values_ptrs = _get_numpy_data_ptr(c, values_ptrs_arr, csr_struct.values_ptrs.type)
+    csr_struct.indices_ptrs = _get_numpy_data_ptr(c, indices_ptrs_arr, csr_struct.indices_ptrs.type)
+    csr_struct.row_lens = _get_numpy_data_ptr(c, row_lens_arr, csr_struct.row_lens.type)
+    
+    c.pyapi.decref(values_ptrs_arr)
+    c.pyapi.decref(indices_ptrs_arr)
+    c.pyapi.decref(row_lens_arr)
+    c.pyapi.decref(ptr_tuple)
+    
+    # 6. Set meminfo to NULL (Python owns the data)
+    null_meminfo = c.context.get_constant_null(types.MemInfoPointer(types.voidptr))
+    csr_struct.meminfo = null_meminfo
+    
+    # 7. Set owns_data to False (Python owns it)
+    csr_struct.owns_data = cgutils.false_bit
+    
+    # 8. Check for errors
     is_error = cgutils.is_not_null(c.builder, c.pyapi.err_occurred())
     
     return NativeValue(csr_struct._getvalue(), is_error=is_error)
@@ -74,56 +133,71 @@ def unbox_csr(typ, obj, c):
 
 @box(CSRType)
 def box_csr(typ, val, c):
-    """Convert a Numba CSR to a Python object.
+    """Convert a Numba CSRModel to a Python CSR object.
     
-    This is called when a JIT function returns a CSR.
-    We create a Python CSRF32/CSRF64 object that owns the handle.
+    This is called when a JIT function returns a CSR. We create a Python
+    CSRF32/CSRF64 object that takes ownership of the handle.
     
     Args:
-        typ: The Numba type (CSRType)
-        val: The LLVM value (CSR struct)
+        typ: The Numba CSRType
+        val: The LLVM value (CSRModel struct)
         c: The boxing context
-    
+        
     Returns:
         LLVM value pointing to the Python object
     """
     csr_struct = cgutils.create_struct_proxy(typ)(c.context, c.builder, value=val)
     
-    # Get the handle as an integer
+    # 1. Get the handle as an integer
     handle_int = c.builder.ptrtoint(csr_struct.handle, cgutils.intp_t)
     handle_obj = c.pyapi.long_from_longlong(handle_int)
     
-    # Import the appropriate class
+    # 2. Determine the Python class name
     if typ.dtype == types.float32:
-        mod = c.pyapi.import_module_noblock("scl._binding._sparse")
-        cls = c.pyapi.object_getattr_string(mod, "CSRF32")
+        cls_name = "CSRF32"
     else:
-        mod = c.pyapi.import_module_noblock("scl._binding._sparse")
-        cls = c.pyapi.object_getattr_string(mod, "CSRF64")
+        cls_name = "CSRF64"
     
-    # Call CSRF64._from_handle(handle_int, owns_handle=True)
+    # 3. Import module and class
+    # Try both possible module paths
+    mod_obj = None
+    for mod_name in ["python._binding._sparse", "scl._binding._sparse"]:
+        try:
+            mod_obj = c.pyapi.import_module_noblock(mod_name)
+            if mod_obj is not None:
+                break
+        except:
+            continue
+    
+    if mod_obj is None:
+        # Fallback to hardcoded path
+        mod_obj = c.pyapi.import_module_noblock("python._binding._sparse")
+    
+    cls = c.pyapi.object_getattr_string(mod_obj, cls_name)
+    
+    # 4. Determine ownership
+    owns_data = csr_struct.owns_data
+    owns_obj = c.builder.select(
+        owns_data,
+        c.pyapi.make_true(),
+        c.pyapi.make_false()
+    )
+    
+    # 5. Call _from_handle(handle_int, owns_handle)
     from_handle = c.pyapi.object_getattr_string(cls, "_from_handle")
-    
-    # Create True for owns_handle
-    true_obj = c.pyapi.make_true()
-    
-    # Build args tuple
-    args = c.pyapi.tuple_pack([handle_obj, true_obj])
-    
-    # Call _from_handle
+    args = c.pyapi.tuple_pack((handle_obj, owns_obj))
     result = c.pyapi.call(from_handle, args)
     
-    # If this handle was created in JIT (has meminfo), we need to clear
-    # the meminfo to prevent double-free, since Python now owns it
-    # TODO: Implement meminfo clearing
+    # 6. If JIT owned the data, transfer ownership to Python
+    # The meminfo will be released by NRT automatically
     
-    # Cleanup
+    # 7. Cleanup
     c.pyapi.decref(handle_obj)
-    c.pyapi.decref(true_obj)
+    c.pyapi.decref(owns_obj)
     c.pyapi.decref(args)
     c.pyapi.decref(from_handle)
     c.pyapi.decref(cls)
-    c.pyapi.decref(mod)
+    c.pyapi.decref(mod_obj)
     
     return result
 
@@ -134,16 +208,25 @@ def box_csr(typ, val, c):
 
 @unbox(CSCType)
 def unbox_csc(typ, obj, c):
-    """Convert a Python CSC object to Numba's internal representation."""
+    """Convert a Python CSC object to Numba's internal CSCModel.
+    
+    Args:
+        typ: The Numba CSCType
+        obj: The Python CSC object (LLVM value pointing to PyObject*)
+        c: The unboxing context
+        
+    Returns:
+        NativeValue containing the CSCModel struct
+    """
     csc_struct = cgutils.create_struct_proxy(typ)(c.context, c.builder)
     
-    # Get handle_as_int
+    # 1. Extract handle
     handle_obj = c.pyapi.object_getattr_string(obj, "handle_as_int")
     handle_int = c.pyapi.long_as_longlong(handle_obj)
     c.pyapi.decref(handle_obj)
     csc_struct.handle = c.builder.inttoptr(handle_int, cgutils.voidptr_t)
     
-    # Get dimensions
+    # 2. Extract dimensions
     nrows_obj = c.pyapi.object_getattr_string(obj, "nrows")
     ncols_obj = c.pyapi.object_getattr_string(obj, "ncols")
     nnz_obj = c.pyapi.object_getattr_string(obj, "nnz")
@@ -156,19 +239,36 @@ def unbox_csc(typ, obj, c):
     c.pyapi.decref(ncols_obj)
     c.pyapi.decref(nnz_obj)
     
-    # For now, set pointer arrays to NULL
-    null_voidptr = c.context.get_constant_null(types.voidptr)
-    csc_struct.values_ptrs = c.builder.bitcast(null_voidptr,
-        csc_struct.values_ptrs.type)
-    csc_struct.indices_ptrs = c.builder.bitcast(null_voidptr,
-        csc_struct.indices_ptrs.type)
-    csc_struct.col_lens = c.builder.bitcast(null_voidptr,
-        csc_struct.col_lens.type)
+    # 3. Call _prepare_numba_pointers()
+    prepare_fn = c.pyapi.object_getattr_string(obj, "_prepare_numba_pointers")
+    empty_tuple = c.pyapi.tuple_new(0)
+    ptr_tuple = c.pyapi.call(prepare_fn, empty_tuple)
+    c.pyapi.decref(prepare_fn)
+    c.pyapi.decref(empty_tuple)
     
-    # Set meminfo to NULL (Python owns the data)
-    null_ptr = c.context.get_constant_null(types.MemInfoPointer(types.voidptr))
-    csc_struct.meminfo = null_ptr
+    # 4. Extract pointer arrays
+    values_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 0)
+    indices_ptrs_arr = c.pyapi.tuple_getitem(ptr_tuple, 1)
+    col_lens_arr = c.pyapi.tuple_getitem(ptr_tuple, 2)
     
+    # 5. Get data pointers
+    csc_struct.values_ptrs = _get_numpy_data_ptr(c, values_ptrs_arr, csc_struct.values_ptrs.type)
+    csc_struct.indices_ptrs = _get_numpy_data_ptr(c, indices_ptrs_arr, csc_struct.indices_ptrs.type)
+    csc_struct.col_lens = _get_numpy_data_ptr(c, col_lens_arr, csc_struct.col_lens.type)
+    
+    c.pyapi.decref(values_ptrs_arr)
+    c.pyapi.decref(indices_ptrs_arr)
+    c.pyapi.decref(col_lens_arr)
+    c.pyapi.decref(ptr_tuple)
+    
+    # 6. Set meminfo to NULL (Python owns the data)
+    null_meminfo = c.context.get_constant_null(types.MemInfoPointer(types.voidptr))
+    csc_struct.meminfo = null_meminfo
+    
+    # 7. Set owns_data to False
+    csc_struct.owns_data = cgutils.false_bit
+    
+    # 8. Check for errors
     is_error = cgutils.is_not_null(c.builder, c.pyapi.err_occurred())
     
     return NativeValue(csc_struct._getvalue(), is_error=is_error)
@@ -180,29 +280,62 @@ def unbox_csc(typ, obj, c):
 
 @box(CSCType)
 def box_csc(typ, val, c):
-    """Convert a Numba CSC to a Python object."""
+    """Convert a Numba CSCModel to a Python CSC object.
+    
+    Args:
+        typ: The Numba CSCType
+        val: The LLVM value (CSCModel struct)
+        c: The boxing context
+        
+    Returns:
+        LLVM value pointing to the Python object
+    """
     csc_struct = cgutils.create_struct_proxy(typ)(c.context, c.builder, value=val)
     
+    # 1. Get the handle as an integer
     handle_int = c.builder.ptrtoint(csc_struct.handle, cgutils.intp_t)
     handle_obj = c.pyapi.long_from_longlong(handle_int)
     
+    # 2. Determine the Python class name
     if typ.dtype == types.float32:
-        mod = c.pyapi.import_module_noblock("scl._binding._sparse")
-        cls = c.pyapi.object_getattr_string(mod, "CSCF32")
+        cls_name = "CSCF32"
     else:
-        mod = c.pyapi.import_module_noblock("scl._binding._sparse")
-        cls = c.pyapi.object_getattr_string(mod, "CSCF64")
+        cls_name = "CSCF64"
     
+    # 3. Import module and class (try both paths)
+    mod_obj = None
+    for mod_name in ["python._binding._sparse", "scl._binding._sparse"]:
+        try:
+            mod_obj = c.pyapi.import_module_noblock(mod_name)
+            if mod_obj is not None:
+                break
+        except:
+            continue
+    
+    if mod_obj is None:
+        mod_obj = c.pyapi.import_module_noblock("python._binding._sparse")
+    
+    cls = c.pyapi.object_getattr_string(mod_obj, cls_name)
+    
+    # 4. Determine ownership
+    owns_data = csc_struct.owns_data
+    owns_obj = c.builder.select(
+        owns_data,
+        c.pyapi.make_true(),
+        c.pyapi.make_false()
+    )
+    
+    # 5. Call _from_handle(handle_int, owns_handle)
     from_handle = c.pyapi.object_getattr_string(cls, "_from_handle")
-    true_obj = c.pyapi.make_true()
-    args = c.pyapi.tuple_pack([handle_obj, true_obj])
+    args = c.pyapi.tuple_pack((handle_obj, owns_obj))
     result = c.pyapi.call(from_handle, args)
     
+    # 6. Cleanup
     c.pyapi.decref(handle_obj)
-    c.pyapi.decref(true_obj)
+    c.pyapi.decref(owns_obj)
     c.pyapi.decref(args)
     c.pyapi.decref(from_handle)
     c.pyapi.decref(cls)
-    c.pyapi.decref(mod)
+    c.pyapi.decref(mod_obj)
     
     return result

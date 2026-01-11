@@ -11,7 +11,7 @@ from numba.core import cgutils
 from numba.extending import overload_method, overload_attribute, overload, intrinsic
 from numba.core.imputils import lower_builtin
 
-from ._types import CSRType, CSCType
+from ._types import CSRType, CSCType, CSRIteratorType, CSCIteratorType
 
 
 # =============================================================================
@@ -155,64 +155,6 @@ def csc_len_overload(csc):
 
 
 # =============================================================================
-# CSR Iterator Support
-# =============================================================================
-
-class CSRIteratorType(types.SimpleIteratorType):
-    """Iterator type for CSR row iteration."""
-    
-    def __init__(self, csr_type):
-        self.csr_type = csr_type
-        # Each iteration yields (values_array, indices_array)
-        yield_type = types.Tuple([
-            types.Array(csr_type.dtype, 1, 'C'),
-            types.Array(types.int64, 1, 'C'),
-        ])
-        super().__init__(name=f'iter(CSR[{csr_type.dtype}])', yield_type=yield_type)
-
-
-class CSCIteratorType(types.SimpleIteratorType):
-    """Iterator type for CSC column iteration."""
-    
-    def __init__(self, csc_type):
-        self.csc_type = csc_type
-        yield_type = types.Tuple([
-            types.Array(csc_type.dtype, 1, 'C'),
-            types.Array(types.int64, 1, 'C'),
-        ])
-        super().__init__(name=f'iter(CSC[{csc_type.dtype}])', yield_type=yield_type)
-
-
-# Register iterator models
-from numba.extending import register_model, models
-
-@register_model(CSRIteratorType)
-class CSRIteratorModel(models.StructModel):
-    def __init__(self, dmm, fe_type):
-        members = [
-            ('values_ptrs', types.CPointer(types.CPointer(fe_type.csr_type.dtype))),
-            ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
-            ('row_lens', types.CPointer(types.intp)),
-            ('nrows', types.int64),
-            ('index', types.int64),
-        ]
-        super().__init__(dmm, fe_type, members)
-
-
-@register_model(CSCIteratorType)
-class CSCIteratorModel(models.StructModel):
-    def __init__(self, dmm, fe_type):
-        members = [
-            ('values_ptrs', types.CPointer(types.CPointer(fe_type.csc_type.dtype))),
-            ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
-            ('col_lens', types.CPointer(types.intp)),
-            ('ncols', types.int64),
-            ('index', types.int64),
-        ]
-        super().__init__(dmm, fe_type, members)
-
-
-# =============================================================================
 # getiter / iternext for CSR
 # =============================================================================
 
@@ -268,9 +210,13 @@ def csr_iternext_impl(context, builder, sig, args, result):
         values_arrty = types.Array(dtype, 1, 'C')
         indices_arrty = types.Array(types.int64, 1, 'C')
         
+        # Get LLVM types for itemsize calculation
+        val_llvm_type = context.get_data_type(dtype)
+        idx_llvm_type = context.get_data_type(types.int64)
+        
         # Build value array
         val_ary = context.make_array(values_arrty)(context, builder)
-        val_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(dtype))
+        val_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(val_llvm_type))
         val_shape = cgutils.pack_array(builder, [length])
         val_strides = cgutils.pack_array(builder, [val_itemsize])
         context.populate_array(val_ary,
@@ -282,7 +228,7 @@ def csr_iternext_impl(context, builder, sig, args, result):
         
         # Build indices array
         idx_ary = context.make_array(indices_arrty)(context, builder)
-        idx_itemsize = context.get_constant(types.intp, 8)  # int64 = 8 bytes
+        idx_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(idx_llvm_type))
         idx_shape = cgutils.pack_array(builder, [length])
         idx_strides = cgutils.pack_array(builder, [idx_itemsize])
         context.populate_array(idx_ary,
@@ -355,8 +301,12 @@ def csc_iternext_impl(context, builder, sig, args, result):
         values_arrty = types.Array(dtype, 1, 'C')
         indices_arrty = types.Array(types.int64, 1, 'C')
         
+        # Get LLVM types for itemsize calculation
+        val_llvm_type = context.get_data_type(dtype)
+        idx_llvm_type = context.get_data_type(types.int64)
+        
         val_ary = context.make_array(values_arrty)(context, builder)
-        val_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(dtype))
+        val_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(val_llvm_type))
         val_shape = cgutils.pack_array(builder, [length])
         val_strides = cgutils.pack_array(builder, [val_itemsize])
         context.populate_array(val_ary,
@@ -367,7 +317,7 @@ def csc_iternext_impl(context, builder, sig, args, result):
                               meminfo=None)
         
         idx_ary = context.make_array(indices_arrty)(context, builder)
-        idx_itemsize = context.get_constant(types.intp, 8)
+        idx_itemsize = context.get_constant(types.intp, context.get_abi_sizeof(idx_llvm_type))
         idx_shape = cgutils.pack_array(builder, [length])
         idx_strides = cgutils.pack_array(builder, [idx_itemsize])
         context.populate_array(idx_ary,
@@ -389,21 +339,6 @@ def csc_iternext_impl(context, builder, sig, args, result):
 
 
 # =============================================================================
-# Type inference for iterators
+# Note: Iterator type inference is handled via IterableType.iterator_type
+# property in _types.py
 # =============================================================================
-
-from numba.core.typing.templates import AbstractTemplate, signature, infer_global
-from numba.core.typing import typeof
-
-@infer_global(iter)
-class CSRIterType(AbstractTemplate):
-    def generic(self, args, kws):
-        if len(args) == 1 and isinstance(args[0], CSRType):
-            return signature(CSRIteratorType(args[0]), args[0])
-
-
-@infer_global(iter)
-class CSCIterType(AbstractTemplate):
-    def generic(self, args, kws):
-        if len(args) == 1 and isinstance(args[0], CSCType):
-            return signature(CSCIteratorType(args[0]), args[0])

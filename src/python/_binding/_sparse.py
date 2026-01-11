@@ -83,6 +83,55 @@ class CSR:
         """
         return int(ffi.cast("uintptr_t", self._handle))
 
+    # =========================
+    # Numba Support
+    # =========================
+
+    def _prepare_numba_pointers(self) -> Tuple["NDArray", "NDArray", "NDArray"]:
+        """Prepare pointer arrays for Numba JIT access.
+        
+        This method extracts all row data pointers into NumPy arrays that
+        Numba can efficiently access. The arrays are cached for reuse.
+        
+        Returns:
+            Tuple of (values_ptrs, indices_ptrs, row_lens) NumPy arrays.
+            - values_ptrs: array of pointers to row value arrays (uintp)
+            - indices_ptrs: array of pointers to row index arrays (uintp)
+            - row_lens: array of row lengths (intp)
+        """
+        # Check if already cached
+        if hasattr(self, '_numba_values_ptrs') and self._numba_values_ptrs is not None:
+            return (self._numba_values_ptrs, self._numba_indices_ptrs, self._numba_row_lens)
+        
+        nrows = self.nrows
+        
+        # Allocate arrays
+        values_ptrs = np.empty(nrows, dtype=np.uintp)
+        indices_ptrs = np.empty(nrows, dtype=np.uintp)
+        row_lens = np.empty(nrows, dtype=np.intp)
+        
+        # Fill arrays using FFI pointers (faster than row_to_numpy)
+        for i in range(nrows):
+            values_ptrs[i] = self.row_values_ptr(i)
+            indices_ptrs[i] = self.row_indices_ptr(i)
+            row_lens[i] = self.row_len(i)
+        
+        # Cache for reuse
+        self._numba_values_ptrs = values_ptrs
+        self._numba_indices_ptrs = indices_ptrs
+        self._numba_row_lens = row_lens
+        
+        return (values_ptrs, indices_ptrs, row_lens)
+
+    def _invalidate_numba_cache(self):
+        """Invalidate the cached Numba pointer arrays.
+        
+        Call this when the matrix data changes (e.g., after modification).
+        """
+        self._numba_values_ptrs = None
+        self._numba_indices_ptrs = None
+        self._numba_row_lens = None
+
     @property
     def shape(self) -> Tuple[int, int]:
         """Gets the shape of the matrix (rows, cols).
@@ -715,6 +764,55 @@ class CSC:
             int: Handle value as integer.
         """
         return int(ffi.cast("uintptr_t", self._handle))
+
+    # =========================
+    # Numba Support
+    # =========================
+
+    def _prepare_numba_pointers(self) -> Tuple["NDArray", "NDArray", "NDArray"]:
+        """Prepare pointer arrays for Numba JIT access.
+        
+        This method extracts all column data pointers into NumPy arrays that
+        Numba can efficiently access. The arrays are cached for reuse.
+        
+        Returns:
+            Tuple of (values_ptrs, indices_ptrs, col_lens) NumPy arrays.
+            - values_ptrs: array of pointers to column value arrays (uintp)
+            - indices_ptrs: array of pointers to column index arrays (uintp)
+            - col_lens: array of column lengths (intp)
+        """
+        # Check if already cached
+        if hasattr(self, '_numba_values_ptrs') and self._numba_values_ptrs is not None:
+            return (self._numba_values_ptrs, self._numba_indices_ptrs, self._numba_col_lens)
+        
+        ncols = self.ncols
+        
+        # Allocate arrays
+        values_ptrs = np.empty(ncols, dtype=np.uintp)
+        indices_ptrs = np.empty(ncols, dtype=np.uintp)
+        col_lens = np.empty(ncols, dtype=np.intp)
+        
+        # Fill arrays using FFI pointers (faster than col_to_numpy)
+        for j in range(ncols):
+            values_ptrs[j] = self.col_values_ptr(j)
+            indices_ptrs[j] = self.col_indices_ptr(j)
+            col_lens[j] = self.col_len(j)
+        
+        # Cache for reuse
+        self._numba_values_ptrs = values_ptrs
+        self._numba_indices_ptrs = indices_ptrs
+        self._numba_col_lens = col_lens
+        
+        return (values_ptrs, indices_ptrs, col_lens)
+
+    def _invalidate_numba_cache(self):
+        """Invalidate the cached Numba pointer arrays.
+        
+        Call this when the matrix data changes (e.g., after modification).
+        """
+        self._numba_values_ptrs = None
+        self._numba_indices_ptrs = None
+        self._numba_col_lens = None
 
     @property
     def shape(self) -> Tuple[int, int]:
