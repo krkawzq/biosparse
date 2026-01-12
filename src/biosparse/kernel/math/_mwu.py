@@ -18,7 +18,7 @@ import math
 import numpy as np
 from numba import prange
 
-from biosparse.optim import parallel_jit, assume
+from biosparse.optim import parallel_jit, assume, vectorize, interleave, likely, unlikely
 
 __all__ = [
     'mwu_p_value_two_sided',
@@ -34,7 +34,7 @@ __all__ = [
 # Precise Implementations (scipy-based)
 # =============================================================================
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_two_sided(
     U: np.ndarray,
     n1: np.ndarray,
@@ -59,6 +59,7 @@ def mwu_p_value_two_sided(
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]
@@ -66,17 +67,17 @@ def mwu_p_value_two_sided(
         denom = N * (N - 1.0)
         base = n1[i] * n2[i] / 12.0
         
-        if denom > 1e-9:
+        if likely(denom > 1e-9):
             var = base * (N + 1.0 - tie_sum[i] / denom)
         else:
             var = base * (N + 1.0)
         
-        if var < 0.0:
+        if unlikely(var < 0.0):
             var = 0.0
         
         sd = np.sqrt(var)
         
-        if sd <= 0.0:
+        if unlikely(sd <= 0.0):
             out[i] = 1.0
             continue
         
@@ -91,7 +92,7 @@ def mwu_p_value_two_sided(
         out[i] = 2.0 * sf
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_greater(
     U: np.ndarray,
     n1: np.ndarray,
@@ -118,6 +119,7 @@ def mwu_p_value_greater(
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]
@@ -125,17 +127,17 @@ def mwu_p_value_greater(
         denom = N * (N - 1.0)
         base = n1[i] * n2[i] / 12.0
         
-        if denom > 1e-9:
+        if likely(denom > 1e-9):
             var = base * (N + 1.0 - tie_sum[i] / denom)
         else:
             var = base * (N + 1.0)
         
-        if var < 0.0:
+        if unlikely(var < 0.0):
             var = 0.0
         
         sd = np.sqrt(var)
         
-        if sd <= 0.0:
+        if unlikely(sd <= 0.0):
             out[i] = 0.0 if U[i] > mu else 1.0
             continue
         
@@ -145,7 +147,7 @@ def mwu_p_value_greater(
         out[i] = 0.5 * math.erfc(z * INV_SQRT2)
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_less(
     U: np.ndarray,
     n1: np.ndarray,
@@ -172,6 +174,7 @@ def mwu_p_value_less(
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]
@@ -179,17 +182,17 @@ def mwu_p_value_less(
         denom = N * (N - 1.0)
         base = n1[i] * n2[i] / 12.0
         
-        if denom > 1e-9:
+        if likely(denom > 1e-9):
             var = base * (N + 1.0 - tie_sum[i] / denom)
         else:
             var = base * (N + 1.0)
         
-        if var < 0.0:
+        if unlikely(var < 0.0):
             var = 0.0
         
         sd = np.sqrt(var)
         
-        if sd <= 0.0:
+        if unlikely(sd <= 0.0):
             out[i] = 0.0 if U[i] < mu else 1.0
             continue
         
@@ -203,7 +206,7 @@ def mwu_p_value_less(
 # Approximate Implementations (faster, ~1e-7 precision)
 # =============================================================================
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_two_sided_approx(
     U: np.ndarray,
     n1: np.ndarray,
@@ -230,6 +233,7 @@ def mwu_p_value_two_sided_approx(
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]
@@ -287,7 +291,7 @@ def mwu_p_value_two_sided_approx(
         out[i] = 2.0 * sf
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_greater_approx(
     U: np.ndarray,
     n1: np.ndarray,
@@ -312,6 +316,7 @@ def mwu_p_value_greater_approx(
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]
@@ -364,7 +369,7 @@ def mwu_p_value_greater_approx(
         out[i] = 0.5 * r
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_less_approx(
     U: np.ndarray,
     n1: np.ndarray,
@@ -389,6 +394,7 @@ def mwu_p_value_less_approx(
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]
@@ -445,7 +451,7 @@ def mwu_p_value_less_approx(
 # Convenience Functions (allocating versions)
 # =============================================================================
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_two_sided_new(
     U: np.ndarray,
     n1: np.ndarray,
@@ -460,6 +466,7 @@ def mwu_p_value_two_sided_new(
     assume(n > 0)
     out = np.empty(n, dtype=np.float64)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]
@@ -493,7 +500,7 @@ def mwu_p_value_two_sided_new(
     return out
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def mwu_p_value_two_sided_approx_new(
     U: np.ndarray,
     n1: np.ndarray,
@@ -508,6 +515,7 @@ def mwu_p_value_two_sided_approx_new(
     assume(n > 0)
     out = np.empty(n, dtype=np.float64)
     
+    vectorize(8)
     for i in prange(n):
         # Compute moments
         N = n1[i] + n2[i]

@@ -50,6 +50,21 @@ __all__ = [
 _USE_GLOBAL_MARKERS = platform.system() == 'Windows'
 
 
+def _get_constant_value(ir_value, default):
+    """Extract constant value from LLVM IR value.
+    
+    Args:
+        ir_value: LLVM IR value (may be Constant or other)
+        default: Default value if not a constant
+    
+    Returns:
+        The constant integer value, or default if not a constant
+    """
+    if isinstance(ir_value, lir.Constant):
+        return ir_value.constant
+    return default
+
+
 def _insert_marker(builder, marker_name):
     """Insert a marker into the IR."""
     if _USE_GLOBAL_MARKERS:
@@ -93,11 +108,14 @@ def vectorize(typingctx, width_ty):
                 total += arr[i]
             return total
     """
-    sig = types.void(types.intp)
+    if not isinstance(width_ty, types.Integer):
+        return None
+    
+    sig = types.void(width_ty)
     
     def codegen(context, builder, sig, args):
         [width] = args
-        width_val = width.constant if isinstance(width, lir.Constant) else 4
+        width_val = _get_constant_value(width, 4)
         _insert_marker(builder, f"__BIOSPARSE_LOOP_VECTORIZE_{width_val}__")
         return context.get_dummy_value()
     
@@ -118,11 +136,14 @@ def unroll(typingctx, count_ty):
             for i in range(4):
                 process(i)
     """
-    sig = types.void(types.intp)
+    if not isinstance(count_ty, types.Integer):
+        return None
+    
+    sig = types.void(count_ty)
     
     def codegen(context, builder, sig, args):
         [count] = args
-        count_val = count.constant if isinstance(count, lir.Constant) else 4
+        count_val = _get_constant_value(count, 4)
         _insert_marker(builder, f"__BIOSPARSE_LOOP_UNROLL_{count_val}__")
         return context.get_dummy_value()
     
@@ -145,11 +166,14 @@ def interleave(typingctx, count_ty):
                 total += arr[i]
             return total
     """
-    sig = types.void(types.intp)
+    if not isinstance(count_ty, types.Integer):
+        return None
+    
+    sig = types.void(count_ty)
     
     def codegen(context, builder, sig, args):
         [count] = args
-        count_val = count.constant if isinstance(count, lir.Constant) else 2
+        count_val = _get_constant_value(count, 2)
         _insert_marker(builder, f"__BIOSPARSE_LOOP_INTERLEAVE_{count_val}__")
         return context.get_dummy_value()
     
@@ -194,11 +218,14 @@ def pipeline(typingctx, stages_ty):
             for i in range(len(arr)):
                 arr[i] = arr[i] * 2 + 1
     """
-    sig = types.void(types.intp)
+    if not isinstance(stages_ty, types.Integer):
+        return None
+    
+    sig = types.void(stages_ty)
     
     def codegen(context, builder, sig, args):
         [stages] = args
-        stages_val = stages.constant if isinstance(stages, lir.Constant) else 0
+        stages_val = _get_constant_value(stages, 0)
         _insert_marker(builder, f"__BIOSPARSE_LOOP_PIPELINE_{stages_val}__")
         return context.get_dummy_value()
     

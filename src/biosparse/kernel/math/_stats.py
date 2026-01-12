@@ -12,7 +12,7 @@ import numpy as np
 from numba import prange
 
 # Use our own optimized JIT decorators
-from biosparse.optim import parallel_jit, assume, vectorize
+from biosparse.optim import parallel_jit, assume, vectorize, interleave, likely, unlikely
 
 __all__ = [
     # Precise (math library based, JIT compatible)
@@ -35,7 +35,7 @@ __all__ = [
 # Precise Implementations (math library based, JIT compatible)
 # =============================================================================
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def erfc(x: np.ndarray, out: np.ndarray) -> None:
     """Complementary error function.
     
@@ -47,11 +47,13 @@ def erfc(x: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = math.erfc(x[i])
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def erf(x: np.ndarray, out: np.ndarray) -> None:
     """Error function.
     
@@ -63,11 +65,13 @@ def erf(x: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = math.erf(x[i])
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_cdf(z: np.ndarray, out: np.ndarray) -> None:
     """Standard normal CDF: P(X <= z).
     
@@ -80,11 +84,13 @@ def normal_cdf(z: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = 0.5 * math.erfc(-z[i] * INV_SQRT2)
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_sf(z: np.ndarray, out: np.ndarray) -> None:
     """Standard normal survival function: P(X > z) = 1 - CDF(z).
     
@@ -97,11 +103,13 @@ def normal_sf(z: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = 0.5 * math.erfc(z[i] * INV_SQRT2)
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_pdf(z: np.ndarray, out: np.ndarray) -> None:
     """Standard normal PDF.
     
@@ -114,11 +122,13 @@ def normal_pdf(z: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = INV_SQRT_2PI * np.exp(-0.5 * z[i] * z[i])
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_logcdf(z: np.ndarray, out: np.ndarray) -> None:
     """Log of standard normal CDF (numerically stable).
     
@@ -134,9 +144,10 @@ def normal_logcdf(z: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         zi = z[i]
-        if zi < -20.0:
+        if unlikely(zi < -20.0):
             # Asymptotic expansion for large negative z
             z2 = zi * zi
             out[i] = -0.5 * z2 - LOG_SQRT_2PI - np.log(-zi)
@@ -145,7 +156,7 @@ def normal_logcdf(z: np.ndarray, out: np.ndarray) -> None:
             out[i] = np.log(cdf)
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_logsf(z: np.ndarray, out: np.ndarray) -> None:
     """Log of standard normal survival function (numerically stable).
     
@@ -161,9 +172,10 @@ def normal_logsf(z: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         zi = z[i]
-        if zi > 20.0:
+        if unlikely(zi > 20.0):
             # Asymptotic expansion for large positive z
             z2 = zi * zi
             out[i] = -0.5 * z2 - LOG_SQRT_2PI - np.log(zi)
@@ -176,7 +188,7 @@ def normal_logsf(z: np.ndarray, out: np.ndarray) -> None:
 # Approximate Implementations (Abramowitz-Stegun, ~1e-7 precision)
 # =============================================================================
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def erfc_approx(x: np.ndarray, out: np.ndarray) -> None:
     """Approximate complementary error function.
     
@@ -191,6 +203,7 @@ def erfc_approx(x: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         xi = x[i]
         ax = abs(xi)
@@ -222,7 +235,7 @@ def erfc_approx(x: np.ndarray, out: np.ndarray) -> None:
         out[i] = r
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_sf_approx(z: np.ndarray, out: np.ndarray) -> None:
     """Approximate standard normal survival function P(X > z).
     
@@ -235,6 +248,7 @@ def normal_sf_approx(z: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         zi = z[i]
         arg = zi * INV_SQRT2
@@ -265,7 +279,7 @@ def normal_sf_approx(z: np.ndarray, out: np.ndarray) -> None:
         out[i] = 0.5 * r
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_cdf_approx(z: np.ndarray, out: np.ndarray) -> None:
     """Approximate standard normal CDF P(X <= z).
     
@@ -278,6 +292,7 @@ def normal_cdf_approx(z: np.ndarray, out: np.ndarray) -> None:
     assume(n > 0)
     assume(len(out) >= n)
     
+    vectorize(8)
     for i in prange(n):
         zi = z[i]
         arg = -zi * INV_SQRT2
@@ -312,20 +327,22 @@ def normal_cdf_approx(z: np.ndarray, out: np.ndarray) -> None:
 # Convenience Functions (allocating versions)
 # =============================================================================
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def erfc_new(x: np.ndarray) -> np.ndarray:
     """Allocating version of erfc."""
     n = len(x)
     assume(n > 0)
     out = np.empty(n, dtype=np.float64)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = math.erfc(x[i])
     
     return out
 
 
-@parallel_jit
+@parallel_jit(cache=True, inline='always')
 def normal_sf_new(z: np.ndarray) -> np.ndarray:
     """Allocating version of normal_sf."""
     INV_SQRT2 = 0.7071067811865475
@@ -333,6 +350,8 @@ def normal_sf_new(z: np.ndarray) -> np.ndarray:
     assume(n > 0)
     out = np.empty(n, dtype=np.float64)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = 0.5 * math.erfc(z[i] * INV_SQRT2)
     
@@ -347,6 +366,7 @@ def normal_sf_approx_new(z: np.ndarray) -> np.ndarray:
     assume(n > 0)
     out = np.empty(n, dtype=np.float64)
     
+    vectorize(8)
     for i in prange(n):
         zi = z[i]
         arg = zi * INV_SQRT2

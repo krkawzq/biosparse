@@ -119,7 +119,8 @@ def unbox_csr(typ, obj, c):
     csr_struct.meminfo = null_meminfo
     
     # 7. Set owns_data to False (Python owns it)
-    csr_struct.owns_data = cgutils.false_bit
+    # Use uint8 constant (0) instead of boolean to match model type
+    csr_struct.owns_data = c.context.get_constant(types.uint8, 0)
     
     # 8. Check for errors
     is_error = cgutils.is_not_null(c.builder, c.pyapi.err_occurred())
@@ -165,9 +166,11 @@ def box_csr(typ, val, c):
     
     cls = c.pyapi.object_getattr_string(mod_obj, cls_name)
     
-    # 4. Determine ownership - convert LLVM bool to Python bool
+    # 4. Determine ownership - convert uint8 to Python bool
     owns_data = csr_struct.owns_data
-    owns_obj = c.pyapi.bool_from_bool(owns_data)
+    # Convert uint8 to i1 for bool_from_bool
+    owns_bool = c.builder.icmp_unsigned('!=', owns_data, c.context.get_constant(types.uint8, 0))
+    owns_obj = c.pyapi.bool_from_bool(owns_bool)
     
     # 5. Call _from_handle(handle_int, owns_handle)
     from_handle = c.pyapi.object_getattr_string(cls, "_from_handle")
@@ -252,7 +255,8 @@ def unbox_csc(typ, obj, c):
     csc_struct.meminfo = null_meminfo
     
     # 7. Set owns_data to False
-    csc_struct.owns_data = cgutils.false_bit
+    # Use uint8 constant (0) instead of boolean to match model type
+    csc_struct.owns_data = c.context.get_constant(types.uint8, 0)
     
     # 8. Check for errors
     is_error = cgutils.is_not_null(c.builder, c.pyapi.err_occurred())
@@ -294,9 +298,11 @@ def box_csc(typ, val, c):
     
     cls = c.pyapi.object_getattr_string(mod_obj, cls_name)
     
-    # 4. Determine ownership - convert LLVM bool to Python bool
+    # 4. Determine ownership - convert uint8 to Python bool
     owns_data = csc_struct.owns_data
-    owns_obj = c.pyapi.bool_from_bool(owns_data)
+    # Convert uint8 to i1 for bool_from_bool
+    owns_bool = c.builder.icmp_unsigned('!=', owns_data, c.context.get_constant(types.uint8, 0))
+    owns_obj = c.pyapi.bool_from_bool(owns_bool)
     
     # 5. Call _from_handle(handle_int, owns_handle)
     from_handle = c.pyapi.object_getattr_string(cls, "_from_handle")

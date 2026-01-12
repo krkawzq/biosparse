@@ -56,7 +56,8 @@ class CSRModel(models.StructModel):
             ('row_lens', types.CPointer(types.intp)),
             
             # Ownership flag - determines if handle should be freed
-            ('owns_data', types.boolean),
+            # Note: use uint8 instead of boolean to avoid prange type mismatch bug
+            ('owns_data', types.uint8),
         ]
         super().__init__(dmm, fe_type, members)
 
@@ -92,7 +93,8 @@ class CSCModel(models.StructModel):
             ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
             # col_lens[j] is the number of non-zeros in column j
             ('col_lens', types.CPointer(types.intp)),
-            ('owns_data', types.boolean),
+            # Note: use uint8 instead of boolean to avoid prange type mismatch bug
+            ('owns_data', types.uint8),
         ]
         super().__init__(dmm, fe_type, members)
 

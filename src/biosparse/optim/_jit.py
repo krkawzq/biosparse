@@ -110,7 +110,21 @@ class OptimizedDispatcher:
     
     def _process_signature(self, sig) -> None:
         try:
-            ir = self._dispatcher.inspect_llvm(sig)
+            # Catch warnings to detect cached code
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                warnings.simplefilter("always")
+                ir = self._dispatcher.inspect_llvm(sig)
+                
+                # Skip processing if inspection is disabled for cached code
+                for w in caught_warnings:
+                    if "Inspection disabled for cached code" in str(w.message):
+                        logger.debug("Skipping hint processing for cached signature: %s", sig)
+                        return
+            
+            # Also skip if IR is invalid/empty (another sign of cached code)
+            if not ir or len(ir) < 100:
+                logger.debug("Skipping hint processing: IR appears invalid for %s", sig)
+                return
             
             if '__BIOSPARSE_LOOP_' not in ir:
                 return
@@ -147,7 +161,10 @@ class OptimizedDispatcher:
             signature = self._dispatcher.signatures[0]
         if signature in self._modified_irs:
             return self._modified_irs[signature]
-        return self._dispatcher.inspect_llvm(signature)
+        # Suppress warnings for cached code inspection
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", "Inspection disabled for cached code")
+            return self._dispatcher.inspect_llvm(signature)
     
     def inspect_asm(self, signature=None):
         return self._dispatcher.inspect_asm(signature)

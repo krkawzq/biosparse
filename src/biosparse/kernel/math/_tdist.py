@@ -16,29 +16,21 @@ Optimization:
     - All helper functions use inline='always' for maximum performance
     - Uses assume/likely/unlikely hints for branch prediction
     - Uses fastmath for numerical operations
+    - Constants inlined to avoid closure overhead
 """
 
 import math
 import numpy as np
 from numba import njit, prange
 
-from biosparse.optim import assume, likely, unlikely
-
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-_FPMIN = 1e-300  # Minimum float to avoid division by zero
-_EPS = 3e-14     # Convergence tolerance for continued fraction
-_MAX_ITER = 200  # Maximum iterations for continued fraction
+from biosparse.optim import assume, likely, unlikely, vectorize, interleave, unroll, fast_jit, parallel_jit
 
 
 # =============================================================================
 # Gamma function (log)
 # =============================================================================
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def _lgamma(x: float) -> float:
     """Log-gamma function.
     
@@ -51,7 +43,7 @@ def _lgamma(x: float) -> float:
 # Beta function (log)
 # =============================================================================
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def _lbeta(a: float, b: float) -> float:
     """Log of the beta function B(a, b) = Gamma(a) * Gamma(b) / Gamma(a+b)."""
     return _lgamma(a) + _lgamma(b) - _lgamma(a + b)
@@ -61,7 +53,7 @@ def _lbeta(a: float, b: float) -> float:
 # Regularized Incomplete Beta Function - Continued Fraction
 # =============================================================================
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def _betainc_cf(a: float, b: float, x: float) -> float:
     """Continued fraction expansion for incomplete beta function.
     
@@ -70,6 +62,16 @@ def _betainc_cf(a: float, b: float, x: float) -> float:
     
     Reference: Numerical Recipes, Press et al.
     """
+    # Inline constants to avoid closure overhead
+    FPMIN = 1e-300
+    EPS = 3e-14
+    MAX_ITER = 200
+    
+    assume(a > 0.0)
+    assume(b > 0.0)
+    assume(x > 0.0)
+    assume(x < 1.0)
+    
     qab = a + b
     qap = a + 1.0
     qam = a - 1.0
@@ -78,45 +80,47 @@ def _betainc_cf(a: float, b: float, x: float) -> float:
     c = 1.0
     d = 1.0 - qab * x / qap
     
-    if unlikely(abs(d) < _FPMIN):
-        d = _FPMIN
+    if unlikely(abs(d) < FPMIN):
+        d = FPMIN
     d = 1.0 / d
     h = d
     
-    for m in range(1, _MAX_ITER + 1):
+    # Main iteration loop
+    for m in range(1, MAX_ITER + 1):
         m_f = float(m)
         m2 = 2.0 * m_f
         
         # Even step
         aa = m_f * (b - m_f) * x / ((qam + m2) * (a + m2))
         d = 1.0 + aa * d
-        if unlikely(abs(d) < _FPMIN):
-            d = _FPMIN
+        if unlikely(abs(d) < FPMIN):
+            d = FPMIN
         c = 1.0 + aa / c
-        if unlikely(abs(c) < _FPMIN):
-            c = _FPMIN
+        if unlikely(abs(c) < FPMIN):
+            c = FPMIN
         d = 1.0 / d
         h *= d * c
         
         # Odd step
         aa = -(a + m_f) * (qab + m_f) * x / ((a + m2) * (qap + m2))
         d = 1.0 + aa * d
-        if unlikely(abs(d) < _FPMIN):
-            d = _FPMIN
+        if unlikely(abs(d) < FPMIN):
+            d = FPMIN
         c = 1.0 + aa / c
-        if unlikely(abs(c) < _FPMIN):
-            c = _FPMIN
+        if unlikely(abs(c) < FPMIN):
+            c = FPMIN
         d = 1.0 / d
         delta = d * c
         h *= delta
         
-        if likely(abs(delta - 1.0) < _EPS):
+        # Check convergence
+        if likely(abs(delta - 1.0) < EPS):
             break
     
     return h
 
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def betainc(a: float, b: float, x: float) -> float:
     """Regularized incomplete beta function I_x(a, b).
     
@@ -163,7 +167,7 @@ def betainc(a: float, b: float, x: float) -> float:
 # Student's t-distribution CDF
 # =============================================================================
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def stdtr(df: float, t: float) -> float:
     """Student's t-distribution CDF.
     
@@ -198,7 +202,7 @@ def stdtr(df: float, t: float) -> float:
         return p
 
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def stdtr_sf(df: float, t: float) -> float:
     """Student's t-distribution survival function (1 - CDF).
     
@@ -214,7 +218,7 @@ def stdtr_sf(df: float, t: float) -> float:
     return stdtr(df, -t)
 
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def t_test_pvalue(t_stat: float, df: float, alternative: int = 0) -> float:
     """Compute p-value for t-test.
     
@@ -229,12 +233,16 @@ def t_test_pvalue(t_stat: float, df: float, alternative: int = 0) -> float:
     Returns:
         The p-value.
     """
+    if unlikely(df <= 0.0):
+        return 1.0
+    
+    assume(df > 0.0)
+    
     if unlikely(alternative == -1):  # less
         return stdtr(df, t_stat)
     elif unlikely(alternative == 1):  # greater
         return stdtr_sf(df, t_stat)
     else:  # two-sided (default, most common)
-        assume(alternative == 0)
         abs_t = abs(t_stat)
         # p = 2 * P(T > |t|) = 2 * stdtr(df, -|t|)
         return 2.0 * stdtr(df, -abs_t)
@@ -244,9 +252,15 @@ def t_test_pvalue(t_stat: float, df: float, alternative: int = 0) -> float:
 # Vectorized versions using prange
 # =============================================================================
 
-@njit(cache=True, fastmath=True, parallel=True)
-def t_test_pvalue_batch(t_stats: np.ndarray, dfs: np.ndarray, alternative: int = 0) -> np.ndarray:
+@parallel_jit(cache=True, inline='always')
+def t_test_pvalue_batch(
+    t_stats: np.ndarray, 
+    dfs: np.ndarray, 
+    alternative: int = 0
+) -> np.ndarray:
     """Compute p-values for multiple t-tests.
+    
+    Optimized with vectorization hints for SIMD.
     
     Args:
         t_stats: Array of t-statistics
@@ -258,12 +272,39 @@ def t_test_pvalue_batch(t_stats: np.ndarray, dfs: np.ndarray, alternative: int =
     """
     n = len(t_stats)
     assume(n > 0)
-    assume(len(dfs) == n)
+    assume(len(dfs) >= n)
     
     out = np.empty(n, dtype=np.float64)
     
+    vectorize(8)
+    interleave(4)
     for i in prange(n):
         out[i] = t_test_pvalue(t_stats[i], dfs[i], alternative)
+    
+    return out
+
+
+@parallel_jit(cache=True, inline='always')
+def stdtr_batch(dfs: np.ndarray, ts: np.ndarray) -> np.ndarray:
+    """Batch computation of Student's t CDF.
+    
+    Args:
+        dfs: Array of degrees of freedom
+        ts: Array of t-values
+    
+    Returns:
+        Array of CDF values
+    """
+    n = len(dfs)
+    assume(n > 0)
+    assume(len(ts) >= n)
+    
+    out = np.empty(n, dtype=np.float64)
+    
+    vectorize(8)
+    interleave(4)
+    for i in prange(n):
+        out[i] = stdtr(dfs[i], ts[i])
     
     return out
 
@@ -272,7 +313,7 @@ def t_test_pvalue_batch(t_stats: np.ndarray, dfs: np.ndarray, alternative: int =
 # Additional utility functions
 # =============================================================================
 
-@njit(cache=True, fastmath=True, inline='always')
+@fast_jit(cache=True, inline='always')
 def t_cdf_two_sided(t_stat: float, df: float) -> float:
     """Two-sided t-distribution CDF (p-value).
     

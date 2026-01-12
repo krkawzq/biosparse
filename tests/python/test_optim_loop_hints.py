@@ -29,17 +29,37 @@ class TestVectorize:
     
     def test_different_widths(self, small_arr):
         """vectorize() should work with different widths."""
-        for width in [4, 8, 16]:
-            @optimized_jit
-            def vec_loop(arr, w=width):
-                vectorize(w)
-                total = 0.0
-                for i in range(len(arr)):
-                    total += arr[i]
-                return total
-            
-            result = vec_loop(small_arr)
-            assert np.isclose(result, np.sum(small_arr))
+        # Note: Loop hints require literal integers at compile time.
+        # Each width needs its own function with a literal value.
+        
+        @optimized_jit
+        def vec_loop_4(arr):
+            vectorize(4)
+            total = 0.0
+            for i in range(len(arr)):
+                total += arr[i]
+            return total
+        
+        @optimized_jit
+        def vec_loop_8(arr):
+            vectorize(8)
+            total = 0.0
+            for i in range(len(arr)):
+                total += arr[i]
+            return total
+        
+        @optimized_jit
+        def vec_loop_16(arr):
+            vectorize(16)
+            total = 0.0
+            for i in range(len(arr)):
+                total += arr[i]
+            return total
+        
+        expected = np.sum(small_arr)
+        assert np.isclose(vec_loop_4(small_arr), expected)
+        assert np.isclose(vec_loop_8(small_arr), expected)
+        assert np.isclose(vec_loop_16(small_arr), expected)
 
 
 class TestUnroll:

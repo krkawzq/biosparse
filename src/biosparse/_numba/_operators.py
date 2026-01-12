@@ -65,8 +65,9 @@ def _create_csr_from_handle_f64(typingctx, handle_ty, owns_ty):
         # Set handle
         csr.handle = handle
 
-        # Set ownership
-        csr.owns_data = owns
+        # Set ownership - convert boolean (i1) to uint8 (i8) to match model
+        owns_u8 = builder.zext(owns, lir.IntType(8))
+        csr.owns_data = owns_u8
 
         # Call FFI to get dimensions
         # Function signature: int64 csr_f64_rows(void* handle)
@@ -106,7 +107,9 @@ def _create_csr_from_handle_f32(typingctx, handle_ty, owns_ty):
         csr_type = sig.return_type
         csr = cgutils.create_struct_proxy(csr_type)(context, builder)
         csr.handle = handle
-        csr.owns_data = owns
+        # Convert boolean (i1) to uint8 (i8) to match model
+        owns_u8 = builder.zext(owns, lir.IntType(8))
+        csr.owns_data = owns_u8
 
         # Call FFI to get dimensions
         fnty_i64 = lir.FunctionType(lir.IntType(64), [lir.IntType(8).as_pointer()])
@@ -139,7 +142,9 @@ def _create_csc_from_handle_f64(typingctx, handle_ty, owns_ty):
         csc_type = sig.return_type
         csc = cgutils.create_struct_proxy(csc_type)(context, builder)
         csc.handle = handle
-        csc.owns_data = owns
+        # Convert boolean (i1) to uint8 (i8) to match model
+        owns_u8 = builder.zext(owns, lir.IntType(8))
+        csc.owns_data = owns_u8
 
         # Call FFI to get dimensions
         fnty_i64 = lir.FunctionType(lir.IntType(64), [lir.IntType(8).as_pointer()])
@@ -172,7 +177,9 @@ def _create_csc_from_handle_f32(typingctx, handle_ty, owns_ty):
         csc_type = sig.return_type
         csc = cgutils.create_struct_proxy(csc_type)(context, builder)
         csc.handle = handle
-        csc.owns_data = owns
+        # Convert boolean (i1) to uint8 (i8) to match model
+        owns_u8 = builder.zext(owns, lir.IntType(8))
+        csc.owns_data = owns_u8
 
         # Call FFI to get dimensions
         fnty_i64 = lir.FunctionType(lir.IntType(64), [lir.IntType(8).as_pointer()])
