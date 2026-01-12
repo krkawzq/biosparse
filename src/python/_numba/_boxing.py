@@ -45,8 +45,8 @@ def _get_module_path():
     """
     # This will be evaluated at box time in the Python interpreter
     import sys
-    if 'scl' in sys.modules:
-        return "scl._binding._sparse"
+    if 'biosparse' in sys.modules:
+        return "biosparse._binding._sparse"
     else:
         return "python._binding._sparse"
 
@@ -161,7 +161,7 @@ def box_csr(typ, val, c):
     # 3. Import module and class
     # Try both possible module paths
     mod_obj = None
-    for mod_name in ["python._binding._sparse", "scl._binding._sparse"]:
+    for mod_name in ["python._binding._sparse", "biosparse._binding._sparse"]:
         try:
             mod_obj = c.pyapi.import_module_noblock(mod_name)
             if mod_obj is not None:
@@ -304,7 +304,7 @@ def box_csc(typ, val, c):
     
     # 3. Import module and class (try both paths)
     mod_obj = None
-    for mod_name in ["python._binding._sparse", "scl._binding._sparse"]:
+    for mod_name in ["python._binding._sparse", "biosparse._binding._sparse"]:
         try:
             mod_obj = c.pyapi.import_module_noblock(mod_name)
             if mod_obj is not None:

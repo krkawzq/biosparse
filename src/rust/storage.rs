@@ -1,6 +1,6 @@
 //! Storage - 内部引用计数内存管理器
 //!
-//! Storage 是 scl 的内部类型，不对外暴露。用户应通过 Span API 访问。
+//! Storage 是 biosparse 的内部类型，不对外暴露。用户应通过 Span API 访问。
 //!
 //! # 设计要点
 //!

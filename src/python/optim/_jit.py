@@ -10,14 +10,14 @@ The main decorator @optimized_jit works like @njit but:
 4. Optionally recompiles with the enhanced IR
 
 Usage:
-    from scl.optim import optimized_jit, vectorize_hint, assume
+    from biosparse.optim import optimized_jit, vectorize, assume
     
     @optimized_jit
     def fast_sum(arr):
         n = len(arr)
         assume(n > 0)
         
-        vectorize_hint(8)
+        vectorize(8)
         total = 0.0
         for i in range(n):
             total += arr[i]
@@ -29,26 +29,31 @@ Options:
         ...
 
 Note:
-    The loop hints (vectorize_hint, unroll_hint, etc.) only take effect
-    when using @optimized_jit. They still work as no-ops with regular @njit.
+    The loop hints (vectorize, unroll, etc.) only take effect when using
+    @optimized_jit. They still work as no-ops with regular @njit.
 """
 
-import functools
+import warnings
 from typing import Callable, Optional, Any, Dict, Union
 from numba import njit
 from numba.core.dispatcher import Dispatcher
 
-from ._ir_processor import IRProcessor, process_ir
+from ._ir_processor import IRProcessor
+from ._logging import logger
 
 
 __all__ = [
     'optimized_jit',
+    'fast_jit',
+    'parallel_jit',
     'OptimizedDispatcher',
+    'inspect_hints',
+    'get_modified_ir',
 ]
 
 
 # =============================================================================
-# Enhanced JIT Decorator
+# Optimized Dispatcher
 # =============================================================================
 
 class OptimizedDispatcher:
@@ -57,11 +62,9 @@ class OptimizedDispatcher:
     This class wraps a compiled Numba function and provides the same
     interface, while also processing loop hints in the generated IR.
     
-    Attributes:
-        _dispatcher: The underlying Numba Dispatcher
-        _process_hints: Whether to process loop hints
-        _verbose: Whether to print debug information
-        _processed_signatures: Set of signatures that have been processed
+    The wrapper is designed to have zero overhead after the first call:
+    - First call: compile, process hints, then call
+    - Subsequent calls: direct dispatch to underlying function
     """
     
     def __init__(
@@ -71,149 +74,116 @@ class OptimizedDispatcher:
         verbose: bool = False,
         recompile: bool = False,
     ):
-        """Initialize the optimized dispatcher.
-        
-        Args:
-            dispatcher: Numba Dispatcher to wrap
-            process_hints: Whether to process loop optimization hints
-            verbose: Whether to print debug information
-            recompile: Whether to recompile with modified IR (experimental)
-        """
         self._dispatcher = dispatcher
         self._process_hints = process_hints
         self._verbose = verbose
         self._recompile = recompile
-        self._processed_signatures = set()
-        self._ir_processor = IRProcessor(verbose=verbose) if process_hints else None
+        self._processed_signatures: set = set()
+        self._ir_processor: Optional[IRProcessor] = None
         self._modified_irs: Dict[Any, str] = {}
         self._initialized = False
+        self._call_func = dispatcher.__call__
     
     def __call__(self, *args, **kwargs):
         """Call the compiled function."""
-        # Fast path after initialization
         if self._initialized:
-            return self._dispatcher(*args, **kwargs)
+            return self._call_func(*args, **kwargs)
         
-        # First call - compile and process
-        result = self._dispatcher(*args, **kwargs)
+        result = self._call_func(*args, **kwargs)
         
         if self._process_hints:
+            self._lazy_init_processor()
             self._process_new_signatures()
         
         self._initialized = True
         return result
     
-    def _process_new_signatures(self):
-        """Process IR for any newly compiled signatures."""
+    def _lazy_init_processor(self) -> None:
+        if self._ir_processor is None:
+            self._ir_processor = IRProcessor(verbose=self._verbose)
+    
+    def _process_new_signatures(self) -> None:
         for sig in self._dispatcher.signatures:
             if sig not in self._processed_signatures:
                 self._processed_signatures.add(sig)
                 self._process_signature(sig)
     
-    def _process_signature(self, sig):
-        """Process IR for a specific signature.
-        
-        Args:
-            sig: Numba signature to process
-        """
+    def _process_signature(self, sig) -> None:
         try:
-            # Get the LLVM IR
             ir = self._dispatcher.inspect_llvm(sig)
             
-            # Check for hints
-            if '__SCL_LOOP_' in ir:
-                if self._verbose:
-                    print(f"[OptimizedJIT] Processing hints for signature: {sig}")
+            if '__BIOSPARSE_LOOP_' not in ir:
+                return
+            
+            logger.debug("Processing hints for signature: %s", sig)
+            modified_ir, hints = self._ir_processor.process(ir)
+            
+            if hints:
+                self._modified_irs[sig] = modified_ir
+                logger.debug("Applied %d loop hints", len(hints))
                 
-                # Process the IR
-                modified_ir, hints = self._ir_processor.process(ir)
-                
-                if hints:
-                    self._modified_irs[sig] = modified_ir
-                    
-                    if self._verbose:
-                        print(f"[OptimizedJIT] Applied {len(hints)} loop hints")
-                    
-                    # TODO: If recompile is True, replace the compiled code
-                    # This requires deeper integration with Numba internals
-                    if self._recompile:
-                        self._warn_recompile_experimental()
+                if self._recompile:
+                    self._do_recompile(sig, modified_ir)
             
         except Exception as e:
-            if self._verbose:
-                print(f"[OptimizedJIT] Warning: Failed to process IR: {e}")
+            logger.warning("Failed to process IR: %s", e)
     
-    def _warn_recompile_experimental(self):
-        """Warn about experimental recompilation feature."""
-        import warnings
+    def _do_recompile(self, sig, modified_ir: str) -> None:
         warnings.warn(
-            "IR recompilation is experimental and may not work correctly. "
+            "IR recompilation is experimental. "
             "The hints are recorded but the original compiled code is used.",
-            RuntimeWarning
+            RuntimeWarning,
+            stacklevel=3
         )
     
-    # ==========================================================================
-    # Dispatcher Interface Methods
-    # ==========================================================================
+    # Dispatcher Interface
     
     @property
     def signatures(self):
-        """Get compiled signatures."""
         return self._dispatcher.signatures
     
     def inspect_llvm(self, signature=None):
-        """Inspect LLVM IR.
-        
-        If hints have been processed, returns the modified IR.
-        Otherwise returns the original IR.
-        """
         if signature is None and self._dispatcher.signatures:
             signature = self._dispatcher.signatures[0]
-        
         if signature in self._modified_irs:
             return self._modified_irs[signature]
-        
         return self._dispatcher.inspect_llvm(signature)
     
     def inspect_asm(self, signature=None):
-        """Inspect generated assembly."""
         return self._dispatcher.inspect_asm(signature)
     
     def inspect_types(self, file=None):
-        """Inspect compiled types."""
         return self._dispatcher.inspect_types(file)
     
     @property
     def py_func(self):
-        """Get the original Python function."""
         return self._dispatcher.py_func
     
     @property
     def __name__(self):
-        """Get function name."""
         return self._dispatcher.__name__
     
     @property
     def __doc__(self):
-        """Get function docstring."""
         return self._dispatcher.__doc__
     
     def __repr__(self):
         return f"<OptimizedDispatcher({self._dispatcher.__name__})>"
     
-    # Forward attribute access to dispatcher
     def __getattr__(self, name):
         return getattr(self._dispatcher, name)
 
 
+# =============================================================================
+# JIT Decorators
+# =============================================================================
+
 def optimized_jit(
     func: Optional[Callable] = None,
     *,
-    # Our options
     process_hints: bool = True,
     verbose: bool = False,
     recompile: bool = False,
-    # Numba options (passed through)
     nogil: bool = True,
     cache: bool = False,
     parallel: bool = False,
@@ -224,17 +194,12 @@ def optimized_jit(
 ) -> Union[Callable, OptimizedDispatcher]:
     """Enhanced JIT decorator with loop optimization support.
     
-    This decorator wraps Numba's @njit and adds support for loop
-    optimization hints like vectorize_hint() and unroll_hint().
-    
     Args:
         func: Function to compile (when used without parentheses)
-        process_hints: Whether to process loop optimization hints (default: True)
-        verbose: Whether to print debug information (default: False)
+        process_hints: Process loop optimization hints (default: True)
+        verbose: Enable debug logging (default: False)
         recompile: Experimental: recompile with modified IR (default: False)
-        
-        # Standard Numba options:
-        nogil: Release GIL during execution (default: False)
+        nogil: Release GIL during execution (default: True)
         cache: Cache compiled function to disk (default: False)
         parallel: Enable automatic parallelization (default: False)
         fastmath: Enable fast math optimizations (default: False)
@@ -246,26 +211,14 @@ def optimized_jit(
         OptimizedDispatcher wrapping the compiled function
     
     Example:
-        # Basic usage
         @optimized_jit
         def sum_array(arr):
-            vectorize_hint(8)
+            vectorize(8)
             total = 0.0
             for i in range(len(arr)):
                 total += arr[i]
             return total
-        
-        # With options
-        @optimized_jit(fastmath=True, parallel=True, verbose=True)
-        def fast_sum(arr):
-            ...
-    
-    Note:
-        Loop hints are processed but the recompilation feature is
-        experimental. The hints mainly serve as documentation and
-        for future integration with LLVM optimization passes.
     """
-    # Collect Numba options (njit is always nopython mode)
     numba_opts = {
         'nogil': nogil,
         'cache': cache,
@@ -278,47 +231,32 @@ def optimized_jit(
         numba_opts['locals'] = locals
     
     def decorator(fn: Callable) -> OptimizedDispatcher:
-        # Compile with Numba
         dispatcher = njit(**numba_opts)(fn)
-        
-        # Wrap in our optimized dispatcher
-        return OptimizedDispatcher(
+        wrapper = OptimizedDispatcher(
             dispatcher,
             process_hints=process_hints,
             verbose=verbose,
             recompile=recompile,
         )
+        wrapper.__wrapped__ = fn
+        return wrapper
     
-    # Handle both @optimized_jit and @optimized_jit()
     if func is not None:
         return decorator(func)
     return decorator
 
 
-# =============================================================================
-# Convenience Aliases
-# =============================================================================
-
 def fast_jit(func: Optional[Callable] = None, **kwargs) -> Union[Callable, OptimizedDispatcher]:
-    """Shorthand for @optimized_jit(fastmath=True).
-    
-    Example:
-        @fast_jit
-        def my_func(arr):
-            ...
-    """
-    return optimized_jit(func, fastmath=True, **kwargs)
+    """Shorthand for @optimized_jit(fastmath=True)."""
+    kwargs.setdefault('fastmath', True)
+    return optimized_jit(func, **kwargs)
 
 
 def parallel_jit(func: Optional[Callable] = None, **kwargs) -> Union[Callable, OptimizedDispatcher]:
-    """Shorthand for @optimized_jit(parallel=True, fastmath=True).
-    
-    Example:
-        @parallel_jit
-        def my_func(arr):
-            ...
-    """
-    return optimized_jit(func, parallel=True, fastmath=True, **kwargs)
+    """Shorthand for @optimized_jit(parallel=True, fastmath=True)."""
+    kwargs.setdefault('parallel', True)
+    kwargs.setdefault('fastmath', True)
+    return optimized_jit(func, **kwargs)
 
 
 # =============================================================================
@@ -326,21 +264,7 @@ def parallel_jit(func: Optional[Callable] = None, **kwargs) -> Union[Callable, O
 # =============================================================================
 
 def inspect_hints(func: OptimizedDispatcher) -> None:
-    """Print loop hints found in a compiled function.
-    
-    Args:
-        func: OptimizedDispatcher to inspect
-    
-    Example:
-        @optimized_jit
-        def my_func(arr):
-            vectorize_hint(8)
-            for i in range(len(arr)):
-                arr[i] *= 2
-        
-        my_func(np.zeros(10))  # Trigger compilation
-        inspect_hints(my_func)
-    """
+    """Print loop hints found in a compiled function."""
     if not isinstance(func, OptimizedDispatcher):
         print("Note: Function is not an OptimizedDispatcher")
         return
@@ -349,7 +273,7 @@ def inspect_hints(func: OptimizedDispatcher) -> None:
         print("Function has not been compiled yet. Call it first.")
         return
     
-    processor = IRProcessor(verbose=True)
+    processor = IRProcessor(verbose=False)
     
     for sig in func.signatures:
         print(f"\nSignature: {sig}")
@@ -360,21 +284,14 @@ def inspect_hints(func: OptimizedDispatcher) -> None:
         
         if hints:
             for hint in hints:
-                print(f"  {hint.hint_type}({hint.value}) at line {hint.line_number}")
+                val_str = f"({hint.value})" if hint.value is not None else ""
+                print(f"  {hint.hint_type}{val_str} at line {hint.line_number}")
         else:
             print("  No loop hints found")
 
 
 def get_modified_ir(func: OptimizedDispatcher, signature=None) -> Optional[str]:
-    """Get the modified IR with loop metadata.
-    
-    Args:
-        func: OptimizedDispatcher to get IR from
-        signature: Specific signature (optional)
-    
-    Returns:
-        Modified LLVM IR string, or None if not processed
-    """
+    """Get the modified IR with loop metadata."""
     if not isinstance(func, OptimizedDispatcher):
         return None
     

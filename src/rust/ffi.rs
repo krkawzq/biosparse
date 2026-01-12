@@ -41,7 +41,7 @@ use crate::storage::AllocError;
 ///
 /// 当 FFI 接口发生不兼容变更时应递增此值
 #[no_mangle]
-pub static SCL_CORE_ABI_VERSION: u32 = 1;
+pub static BIOSPARSE_ABI_VERSION: u32 = 1;
 
 // =============================================================================
 // 句柄类型定义
@@ -2721,7 +2721,7 @@ mod tests {
 
     #[test]
     fn test_abi_version() {
-        assert_eq!(SCL_CORE_ABI_VERSION, 1);
+        assert_eq!(BIOSPARSE_ABI_VERSION, 1);
     }
 
     #[test]

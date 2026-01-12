@@ -1,12 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "scl-core"
+name = "biosparse"
 version = "0.1.0"
-description = "Add your description here"
+description = "High-performance sparse matrix computation library for bioinformatics"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "cffi>=2.0.0",
-    "numba>=0.63.1",
-    "numpy>=2.2.6",
-    "scipy>=1.15.3",
+    "cffi",
+    "numba",
+    "numpy",
+    "scipy",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.setuptools.package-dir]
+biosparse = "src/python"

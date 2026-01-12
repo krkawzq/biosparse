@@ -1,6 +1,6 @@
-"""SCL - High-performance sparse matrix computation library.
+"""BioSparse - High-performance sparse matrix computation library.
 
-SCL (Sparse Compute Library) is a high-performance sparse matrix computation
+BioSparse is a high-performance sparse matrix computation
 library for bioinformatics. The core is implemented in Rust and provides Python
 bindings through CFFI.
 
@@ -13,7 +13,7 @@ Features:
 Quick Start:
 
     import scipy.sparse as sp
-    from scl import CSRF64
+    from biosparse import CSRF64
     
     # Create CSR matrix from scipy
     scipy_mat = sp.random(1000, 500, density=0.01, format='csr', dtype='float64')

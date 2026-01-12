@@ -1,6 +1,6 @@
-"""SCL Core Python Bindings.
+"""BioSparse Core Python Bindings.
 
-This module provides Python bindings for the scl-core Rust library.
+This module provides Python bindings for the biosparse Rust library.
 
 Main Classes:
     - CSRF32, CSRF64: CSR sparse matrices (single/double precision)
@@ -11,7 +11,7 @@ Example Usage:
 
     import numpy as np
     import scipy.sparse as sp
-    from scl._binding import CSRF64
+    from biosparse._binding import CSRF64
     
     # Create from scipy
     scipy_mat = sp.random(1000, 1000, density=0.01, format='csr')

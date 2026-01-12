@@ -12,7 +12,7 @@ Available intrinsics:
     - prefetch_write(ptr, locality): Prefetch memory for writing
 
 Example:
-    from scl.optim import assume, likely, prefetch_read
+    from biosparse.optim import assume, likely, prefetch_read
     
     @njit(fastmath=True)
     def optimized_sum(arr):

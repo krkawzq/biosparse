@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class Span:
     """Base class for Span Python wrapper.
     
-    Span is a core data structure in scl-core, representing a typed contiguous
+    Span is a core data structure in biosparse, representing a typed contiguous
     memory region.
     
     Attributes:

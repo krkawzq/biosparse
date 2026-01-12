@@ -1,4 +1,4 @@
-"""CFFI bindings for scl-core."""
+"""CFFI bindings for biosparse."""
 
 import os
 import sys
@@ -28,7 +28,7 @@ ffi.cdef("""
     // Constants
     // =========================================================================
     
-    extern uint32_t SCL_CORE_ABI_VERSION;
+    extern uint32_t BIOSPARSE_ABI_VERSION;
     extern size_t SPAN_SIZE;
     extern size_t SPAN_FLAG_VIEW;
     extern size_t SPAN_FLAG_ALIGNED;
@@ -575,7 +575,7 @@ class FfiResult:
 
 
 def _find_library():
-    """Find scl_core dynamic library.
+    """Find biosparse dynamic library.
     
     Returns:
         Path to the library file.
@@ -585,11 +585,11 @@ def _find_library():
     """
     # Library name (platform-dependent)
     if sys.platform == "win32":
-        lib_name = "scl_core.dll"
+        lib_name = "biosparse.dll"
     elif sys.platform == "darwin":
-        lib_name = "libscl_core.dylib"
+        lib_name = "libbiosparse.dylib"
     else:
-        lib_name = "libscl_core.so"
+        lib_name = "libbiosparse.so"
     
     # Search paths
     search_paths = [
@@ -604,8 +604,8 @@ def _find_library():
     ]
     
     # Environment variable override
-    if "SCL_CORE_LIB" in os.environ:
-        return os.environ["SCL_CORE_LIB"]
+    if "BIOSPARSE_LIB" in os.environ:
+        return os.environ["BIOSPARSE_LIB"]
     
     for path in search_paths:
         lib_path = os.path.join(path, lib_name)
@@ -615,7 +615,7 @@ def _find_library():
     raise RuntimeError(
         f"Cannot find {lib_name}. "
         f"Please build the library with 'cargo build --release' "
-        f"or set SCL_CORE_LIB environment variable."
+        f"or set BIOSPARSE_LIB environment variable."
     )
 
 
@@ -623,7 +623,7 @@ def _find_library():
 lib = ffi.dlopen(_find_library())
 
 # Export ABI version
-ABI_VERSION = lib.SCL_CORE_ABI_VERSION
+ABI_VERSION = lib.BIOSPARSE_ABI_VERSION
 
 # Export Span flags
 SPAN_FLAG_VIEW = lib.SPAN_FLAG_VIEW

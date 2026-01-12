@@ -1,4 +1,4 @@
-"""Numba extensions for SCL sparse matrices.
+"""Numba extensions for BioSparse sparse matrices.
 
 This module provides complete Numba JIT support for CSR/CSC sparse matrices,
 enabling high-performance sparse matrix operations in nopython mode.
@@ -15,7 +15,7 @@ Features:
 
 Usage:
     ```python
-    from scl import CSRF64
+    from biosparse import CSRF64
     from numba import njit
     import scipy.sparse as sp
     
