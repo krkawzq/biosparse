@@ -395,6 +395,15 @@ ffi.cdef("""
     int32_t csc_f64_from_csr(void* csr_handle, void** out_handle);
     int32_t csr_f32_from_csc(void* csc_handle, void** out_handle);
     int32_t csr_f64_from_csc(void* csc_handle, void** out_handle);
+
+    // =========================================================================
+    // Transpose operations
+    // =========================================================================
+
+    int32_t csc_f32_transpose_from_csr(void* csr_handle, void** out_handle);
+    int32_t csc_f64_transpose_from_csr(void* csr_handle, void** out_handle);
+    int32_t csr_f32_transpose_from_csc(void* csc_handle, void** out_handle);
+    int32_t csr_f64_transpose_from_csc(void* csc_handle, void** out_handle);
     
     // =========================================================================
     // Conversion functions - Dense format

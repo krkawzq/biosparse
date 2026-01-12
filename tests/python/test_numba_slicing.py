@@ -54,7 +54,7 @@ def csr_f64():
 def csc_f64():
     """Create a small CSC matrix for testing."""
     pytest.importorskip("scipy")
-    if not BINDING_AVAILABLE:
+    if not _BINDING_AVAILABLE:
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp

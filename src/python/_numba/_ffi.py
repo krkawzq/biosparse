@@ -26,7 +26,11 @@ try:
     from .._binding._cffi import ffi, lib
     _FFI_AVAILABLE = True
 except ImportError:
-    pass
+    try:
+        from _binding._cffi import ffi, lib
+        _FFI_AVAILABLE = True
+    except ImportError:
+        pass
 
 
 # =============================================================================
@@ -455,3 +459,9 @@ ffi_csc_f32_clone = _make_ffi_clone("csc_f32_clone")
 
 # CSC F32 - Converters
 ffi_csr_f32_from_csc = _make_ffi_converter_1arg("csr_f32_from_csc")
+
+# Transpose functions
+ffi_csc_f64_transpose_from_csr = _make_ffi_converter_1arg("csc_f64_transpose_from_csr")
+ffi_csc_f32_transpose_from_csr = _make_ffi_converter_1arg("csc_f32_transpose_from_csr")
+ffi_csr_f64_transpose_from_csc = _make_ffi_converter_1arg("csr_f64_transpose_from_csc")
+ffi_csr_f32_transpose_from_csc = _make_ffi_converter_1arg("csr_f32_transpose_from_csc")

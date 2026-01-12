@@ -159,29 +159,15 @@ def box_csr(typ, val, c):
         cls_name = "CSRF64"
     
     # 3. Import module and class
-    # Try both possible module paths
-    mod_obj = None
-    for mod_name in ["python._binding._sparse", "biosparse._binding._sparse"]:
-        try:
-            mod_obj = c.pyapi.import_module_noblock(mod_name)
-            if mod_obj is not None:
-                break
-        except:
-            continue
-    
-    if mod_obj is None:
-        # Fallback to hardcoded path
-        mod_obj = c.pyapi.import_module_noblock("python._binding._sparse")
+    # Use insert_const_string to create LLVM string constant
+    mod_name_ptr = c.context.insert_const_string(c.builder.module, "_binding._sparse")
+    mod_obj = c.pyapi.import_module(mod_name_ptr)
     
     cls = c.pyapi.object_getattr_string(mod_obj, cls_name)
     
-    # 4. Determine ownership
+    # 4. Determine ownership - convert LLVM bool to Python bool
     owns_data = csr_struct.owns_data
-    owns_obj = c.builder.select(
-        owns_data,
-        c.pyapi.make_true(),
-        c.pyapi.make_false()
-    )
+    owns_obj = c.pyapi.bool_from_bool(owns_data)
     
     # 5. Call _from_handle(handle_int, owns_handle)
     from_handle = c.pyapi.object_getattr_string(cls, "_from_handle")
@@ -302,28 +288,15 @@ def box_csc(typ, val, c):
     else:
         cls_name = "CSCF64"
     
-    # 3. Import module and class (try both paths)
-    mod_obj = None
-    for mod_name in ["python._binding._sparse", "biosparse._binding._sparse"]:
-        try:
-            mod_obj = c.pyapi.import_module_noblock(mod_name)
-            if mod_obj is not None:
-                break
-        except:
-            continue
-    
-    if mod_obj is None:
-        mod_obj = c.pyapi.import_module_noblock("python._binding._sparse")
+    # 3. Import module and class
+    mod_name_ptr = c.context.insert_const_string(c.builder.module, "_binding._sparse")
+    mod_obj = c.pyapi.import_module(mod_name_ptr)
     
     cls = c.pyapi.object_getattr_string(mod_obj, cls_name)
     
-    # 4. Determine ownership
+    # 4. Determine ownership - convert LLVM bool to Python bool
     owns_data = csc_struct.owns_data
-    owns_obj = c.builder.select(
-        owns_data,
-        c.pyapi.make_true(),
-        c.pyapi.make_false()
-    )
+    owns_obj = c.pyapi.bool_from_bool(owns_data)
     
     # 5. Call _from_handle(handle_int, owns_handle)
     from_handle = c.pyapi.object_getattr_string(cls, "_from_handle")

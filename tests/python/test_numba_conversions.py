@@ -6,10 +6,31 @@ Tests _numba/_conversions.py: to_dense, to_coo, to_csc, to_csr, clone
 import pytest
 import numpy as np
 
-from conftest import NUMBA_EXT_AVAILABLE, BINDING_AVAILABLE
+# Check if numba extension is available
+_NUMBA_EXT_AVAILABLE = False
+_BINDING_AVAILABLE = False
+
+try:
+    import numba
+    _NUMBA_AVAILABLE = True
+except ImportError:
+    _NUMBA_AVAILABLE = False
+
+try:
+    from _binding import lib
+    _BINDING_AVAILABLE = lib is not None
+except Exception:
+    _BINDING_AVAILABLE = False
+
+_NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
+if _NUMBA_EXT_AVAILABLE:
+    try:
+        import _numba
+    except Exception:
+        _NUMBA_EXT_AVAILABLE = False
 
 pytestmark = pytest.mark.skipif(
-    not NUMBA_EXT_AVAILABLE,
+    not _NUMBA_EXT_AVAILABLE,
     reason="Numba extension not available (requires Rust FFI + Numba)"
 )
 
@@ -18,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 def csr_f64():
     """Create a small CSR matrix for testing."""
     pytest.importorskip("scipy")
-    if not BINDING_AVAILABLE:
+    if not _BINDING_AVAILABLE:
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
@@ -33,7 +54,7 @@ def csr_f64():
 def csc_f64():
     """Create a small CSC matrix for testing."""
     pytest.importorskip("scipy")
-    if not BINDING_AVAILABLE:
+    if not _BINDING_AVAILABLE:
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp

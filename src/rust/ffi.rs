@@ -2688,6 +2688,99 @@ impl_csr_numba_ffi!(f64, f64, i64, CSRF64Handle);
 impl_csc_numba_ffi!(f32, f32, i64, CSCF32Handle);
 impl_csc_numba_ffi!(f64, f64, i64, CSCF64Handle);
 
+
+// =============================================================================
+// 转置操作
+// =============================================================================
+
+/// CSR → CSC 转置（f32）
+#[no_mangle]
+pub unsafe extern "C" fn csc_f32_transpose_from_csr(
+    csr_handle: CSRF32Handle,
+    out_handle: *mut CSCF32HandleMut,
+) -> FfiResult {
+    if csr_handle.is_null() || out_handle.is_null() {
+        return FfiResult::NullPointer;
+    }
+
+    match crate::transpose::csc_transpose_from_csr::<f32, i64, DEFAULT_ALIGN>(
+        &*csr_handle,
+        AllocStrategy::Auto,
+    ) {
+        Ok(csc) => {
+            *out_handle = Box::into_raw(Box::new(csc));
+            FfiResult::Ok
+        }
+        Err(e) => e.into(),
+    }
+}
+
+/// CSR → CSC 转置（f64）
+#[no_mangle]
+pub unsafe extern "C" fn csc_f64_transpose_from_csr(
+    csr_handle: CSRF64Handle,
+    out_handle: *mut CSCF64HandleMut,
+) -> FfiResult {
+    if csr_handle.is_null() || out_handle.is_null() {
+        return FfiResult::NullPointer;
+    }
+
+    match crate::transpose::csc_transpose_from_csr::<f64, i64, DEFAULT_ALIGN>(
+        &*csr_handle,
+        AllocStrategy::Auto,
+    ) {
+        Ok(csc) => {
+            *out_handle = Box::into_raw(Box::new(csc));
+            FfiResult::Ok
+        }
+        Err(e) => e.into(),
+    }
+}
+
+/// CSC → CSR 转置（f32）
+#[no_mangle]
+pub unsafe extern "C" fn csr_f32_transpose_from_csc(
+    csc_handle: CSCF32Handle,
+    out_handle: *mut CSRF32HandleMut,
+) -> FfiResult {
+    if csc_handle.is_null() || out_handle.is_null() {
+        return FfiResult::NullPointer;
+    }
+
+    match crate::transpose::csr_transpose_from_csc::<f32, i64, DEFAULT_ALIGN>(
+        &*csc_handle,
+        AllocStrategy::Auto,
+    ) {
+        Ok(csr) => {
+            *out_handle = Box::into_raw(Box::new(csr));
+            FfiResult::Ok
+        }
+        Err(e) => e.into(),
+    }
+}
+
+/// CSC → CSR 转置（f64）
+#[no_mangle]
+pub unsafe extern "C" fn csr_f64_transpose_from_csc(
+    csc_handle: CSCF64Handle,
+    out_handle: *mut CSRF64HandleMut,
+) -> FfiResult {
+    if csc_handle.is_null() || out_handle.is_null() {
+        return FfiResult::NullPointer;
+    }
+
+    match crate::transpose::csr_transpose_from_csc::<f64, i64, DEFAULT_ALIGN>(
+        &*csc_handle,
+        AllocStrategy::Auto,
+    ) {
+        Ok(csr) => {
+            *out_handle = Box::into_raw(Box::new(csr));
+            FfiResult::Ok
+        }
+        Err(e) => e.into(),
+    }
+}
+
 // =============================================================================
 // 测试
 // =============================================================================

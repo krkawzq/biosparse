@@ -21,6 +21,10 @@ from ._ffi import (
     ffi_csc_f32_from_csr,
     ffi_csr_f64_from_csc,
     ffi_csr_f32_from_csc,
+    ffi_csc_f64_transpose_from_csr,
+    ffi_csc_f32_transpose_from_csr,
+    ffi_csr_f64_transpose_from_csc,
+    ffi_csr_f32_transpose_from_csc,
 )
 
 
@@ -458,3 +462,64 @@ def csc_clone_overload(csc):
             new_handle = ffi_csc_f32_clone(csc.handle)
             return _create_csc_from_handle_f32(new_handle, True)
         return impl
+
+
+# =============================================================================
+# CSR: T (transpose)
+# =============================================================================
+
+@overload_method(CSRType, 'T')
+def csr_T_overload(csr):
+    """Transpose CSR to CSC format."""
+    from ._operators import _create_csc_from_handle_f64, _create_csc_from_handle_f32
+
+    if csr.dtype == types.float64:
+        def impl(csr):
+            out_handle_ptr = _alloca_voidptr()
+            result = ffi_csc_f64_transpose_from_csr(csr.handle, out_handle_ptr)
+            if result != 0:
+                raise RuntimeError("transpose failed")
+            new_handle = _load_voidptr(out_handle_ptr)
+            return _create_csc_from_handle_f64(new_handle, True)
+        return impl
+    else:  # float32
+        def impl(csr):
+            out_handle_ptr = _alloca_voidptr()
+            result = ffi_csc_f32_transpose_from_csr(csr.handle, out_handle_ptr)
+            if result != 0:
+                raise RuntimeError("transpose failed")
+            new_handle = _load_voidptr(out_handle_ptr)
+            return _create_csc_from_handle_f32(new_handle, True)
+        return impl
+
+
+# =============================================================================
+# CSC: T (transpose)
+# =============================================================================
+
+@overload_method(CSCType, 'T')
+def csc_T_overload(csc):
+    """Transpose CSC to CSR format."""
+    from ._operators import _create_csr_from_handle_f64, _create_csr_from_handle_f32
+
+    if csc.dtype == types.float64:
+        def impl(csc):
+            out_handle_ptr = _alloca_voidptr()
+            result = ffi_csr_f64_transpose_from_csc(csc.handle, out_handle_ptr)
+            if result != 0:
+                raise RuntimeError("transpose failed")
+            new_handle = _load_voidptr(out_handle_ptr)
+            return _create_csr_from_handle_f64(new_handle, True)
+        return impl
+    else:  # float32
+        def impl(csc):
+            out_handle_ptr = _alloca_voidptr()
+            result = ffi_csr_f32_transpose_from_csc(csc.handle, out_handle_ptr)
+            if result != 0:
+                raise RuntimeError("transpose failed")
+            new_handle = _load_voidptr(out_handle_ptr)
+            return _create_csr_from_handle_f32(new_handle, True)
+        return impl
+
+
+# End of file

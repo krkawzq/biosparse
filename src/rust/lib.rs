@@ -30,6 +30,7 @@ pub mod span;
 pub mod sparse;
 pub mod stack;
 pub mod tools;
+pub mod transpose;
 
 // 重导出常用类型
 pub use span::{Span, SpanFlags};

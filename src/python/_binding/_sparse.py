@@ -6,7 +6,7 @@ import numpy as np
 from typing import Tuple, List, Optional, Union, TYPE_CHECKING
 
 from ._cffi import ffi, lib, FfiResult
-from ._span import Span, SpanF32, SpanF64, SpanI64
+from ._span import Span, SpanF32, SpanF64, SpanI32, SpanI64
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -538,6 +538,19 @@ class CSR:
         csc_prefix = self._prefix.replace("csr", "csc")
         result = getattr(lib, f"{csc_prefix}_from_csr")(self._handle, out_handle)
         FfiResult.check(result, "to_csc")
+        csc_class = CSCF32 if self._value_dtype == np.float32 else CSCF64
+        return csc_class(out_handle[0], owns_handle=True)
+
+    def T(self) -> "CSC":
+        """Returns the transpose of the CSR matrix as a CSC matrix.
+
+        Returns:
+            CSC: The transposed matrix in CSC format.
+        """
+        out_handle = ffi.new("void**")
+        csc_prefix = self._prefix.replace("csr", "csc")
+        result = getattr(lib, f"{csc_prefix}_transpose_from_csr")(self._handle, out_handle)
+        FfiResult.check(result, "transpose")
         csc_class = CSCF32 if self._value_dtype == np.float32 else CSCF64
         return csc_class(out_handle[0], owns_handle=True)
 
@@ -1303,6 +1316,19 @@ class CSC:
         csr_prefix = self._prefix.replace("csc", "csr")
         result = getattr(lib, f"{csr_prefix}_from_csc")(self._handle, out_handle)
         FfiResult.check(result, "to_csr")
+        csr_class = CSRF32 if self._value_dtype == np.float32 else CSRF64
+        return csr_class(out_handle[0], owns_handle=True)
+
+    def T(self) -> "CSR":
+        """Returns the transpose of the CSC matrix as a CSR matrix.
+
+        Returns:
+            CSR: The transposed matrix in CSR format.
+        """
+        out_handle = ffi.new("void**")
+        csr_prefix = self._prefix.replace("csc", "csr")
+        result = getattr(lib, f"{csr_prefix}_transpose_from_csc")(self._handle, out_handle)
+        FfiResult.check(result, "transpose")
         csr_class = CSRF32 if self._value_dtype == np.float32 else CSRF64
         return csr_class(out_handle[0], owns_handle=True)
 

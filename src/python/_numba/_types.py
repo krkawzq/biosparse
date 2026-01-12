@@ -8,7 +8,11 @@ from numba import types
 from numba.extending import typeof_impl
 
 # Import the Python classes for type registration
-from .._binding._sparse import CSR, CSC, CSRF32, CSRF64, CSCF32, CSCF64
+# Use absolute import to work with flat path setup in tests
+try:
+    from .._binding._sparse import CSR, CSC, CSRF32, CSRF64, CSCF32, CSCF64
+except ImportError:
+    from _binding._sparse import CSR, CSC, CSRF32, CSRF64, CSCF32, CSCF64
 
 
 # =============================================================================
