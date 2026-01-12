@@ -724,8 +724,8 @@ def main():
         scenarios = [
             {"name": "Sparse (20%)", "density": 0.2},
         ]
-        n_rows, n_cols = 1000, 500
-        n_genes, n_cells = 500, 300
+        n_rows, n_cols = 500, 1000
+        n_genes, n_cells = 300, 500
         n_groups = 3
         n_runs = 3
     else:
@@ -735,8 +735,8 @@ def main():
             {"name": "Sparse (20%)", "density": 0.2},
             {"name": "Very Sparse (10%)", "density": 0.1},
         ]
-        n_rows, n_cols = 10000, 5000
-        n_genes, n_cells = 5000, 2000
+        n_rows, n_cols = 5000, 10000
+        n_genes, n_cells = 2000, 5000
         n_groups = 5
         n_runs = args.runs
     
