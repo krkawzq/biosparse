@@ -20,6 +20,8 @@ Optimization techniques applied:
     14. Binary search for boundaries - O(log n) instead of O(n)
     15. Manual zero-init - np.empty + loop faster than np.zeros in prange
     16. Fused p-value + log2fc - single pass reduces memory bandwidth
+    17. Thread-local buffers - pre-allocate once, index by get_thread_id()
+        to eliminate heap allocation overhead in prange loops
 
 Algorithm (based on hpdex C++ implementation):
     - Three-phase: scan -> sort -> rank
@@ -29,7 +31,7 @@ Algorithm (based on hpdex C++ implementation):
 
 import math
 import numpy as np
-from numba import prange, njit
+from numba import prange, njit, get_num_threads, get_thread_id
 
 from biosparse.optim import (
     parallel_jit, fast_jit, assume, likely, unlikely,
@@ -308,7 +310,22 @@ def _merge_rank_optimized(
 # Core MWU Computation (row-parallel, maximum optimization)
 # =============================================================================
 
-@parallel_jit(cache=True, boundscheck=False)
+@fast_jit(cache=True, boundscheck=False, inline='always')
+def _compute_max_nnz(csr: CSR) -> int:
+    """Compute maximum nnz across all rows for buffer pre-allocation."""
+    n_rows = csr.nrows
+    assume(n_rows > 0)
+    
+    max_nnz = 0
+    for row in range(n_rows):
+        values, _ = csr.row_to_numpy(row)
+        nnz = len(values)
+        if nnz > max_nnz:
+            max_nnz = nnz
+    return max_nnz
+
+
+@parallel_jit(cache=True, boundscheck=False, inline='always')
 def _mwu_core(
     csr: CSR,
     group_ids: np.ndarray,
@@ -318,8 +335,17 @@ def _mwu_core(
     out_tie: np.ndarray,
     out_sum_ref: np.ndarray,
     out_sum_tar: np.ndarray,
+    # Thread-local pre-allocated buffers
+    tl_buf_ref: np.ndarray,      # (n_threads, max_nnz + 1)
+    tl_buf_tar: np.ndarray,      # (n_threads, n_targets, max_nnz + 1)
+    tl_n_tar_nz: np.ndarray,     # (n_threads, n_targets)
+    tl_sum_tar: np.ndarray,      # (n_threads, n_targets)
 ) -> None:
-    """Core MWU with row-level parallelism."""
+    """Core MWU with row-level parallelism and thread-local buffers.
+    
+    Thread-local buffers eliminate heap allocation overhead in prange loop.
+    Buffers are indexed by get_thread_id() for zero-contention access.
+    """
     n_rows = csr.nrows
     n_ref = group_counts[0]
     
@@ -331,22 +357,22 @@ def _mwu_core(
     assume(n_targets > 0)
     assume(n_ref > 0)
     
-    vectorize(4)
     for row in prange(n_rows):
+        # Get thread-local buffer via thread ID (zero heap allocation!)
+        tid = get_thread_id()
+        buf_ref = tl_buf_ref[tid]
+        buf_tar = tl_buf_tar[tid]
+        n_tar_nz = tl_n_tar_nz[tid]
+        sum_tar = tl_sum_tar[tid]
+        
         # Get row data (single call, no redundant access)
         values, col_indices = csr.row_to_numpy(row)
         nnz = len(values)
         
-        # === Allocate buffers with np.empty (faster than np.zeros) ===
-        buf_ref = np.empty(nnz + 1, dtype=np.float64)
-        buf_tar = np.empty((n_targets, nnz + 1), dtype=np.float64)
-        
         n_ref_nz = 0
         sum_ref = 0.0
         
-        # Manual zero-init with vectorize hint
-        n_tar_nz = np.empty(n_targets, dtype=np.int64)
-        sum_tar = np.empty(n_targets, dtype=np.float64)
+        # Reset thread-local counters (no allocation, just zero-init)
         assume(n_targets > 0)
         vectorize(4)
         unroll(4)
@@ -412,7 +438,7 @@ def _mwu_core(
 # Fused P-value + Log2FC + AUROC Computation (single pass)
 # =============================================================================
 
-@parallel_jit(cache=True, boundscheck=False)
+@parallel_jit(cache=True, boundscheck=False, inline='always')
 def _compute_stats_fused(
     U1: np.ndarray,
     n1: float,
@@ -543,7 +569,7 @@ count_groups = _count_groups
 # Public API
 # =============================================================================
 
-@njit
+@fast_jit(cache=True)
 def mwu_test(
     csr: CSR,
     group_ids: np.ndarray,
@@ -557,6 +583,7 @@ def mwu_test(
     
     Optimizations:
         - Row-parallel processing with prange
+        - Thread-local buffers (zero heap allocation in hot loop)
         - Merge-based rank (O(n log n) per gene)
         - Three-phase: scan -> sort -> rank
         - Insertion sort for small arrays (<16)
@@ -594,10 +621,22 @@ def mwu_test(
     out_log2fc = np.empty((n_rows, n_targets), dtype=np.float64)
     out_auroc = np.empty((n_rows, n_targets), dtype=np.float64)
     
-    # Phase 1-3: Core MWU
+    # === Thread-local buffer pre-allocation (eliminates heap alloc in prange) ===
+    n_threads = get_num_threads()
+    max_nnz = _compute_max_nnz(csr)
+    buf_size = max_nnz + 1
+    
+    # Pre-allocate thread-local buffers once (indexed by get_thread_id())
+    tl_buf_ref = np.empty((n_threads, buf_size), dtype=np.float64)
+    tl_buf_tar = np.empty((n_threads, n_targets, buf_size), dtype=np.float64)
+    tl_n_tar_nz = np.empty((n_threads, n_targets), dtype=np.int64)
+    tl_sum_tar = np.empty((n_threads, n_targets), dtype=np.float64)
+    
+    # Phase 1-3: Core MWU with thread-local buffers
     _mwu_core(
         csr, group_ids, group_counts, n_targets,
-        out_U1, out_tie, out_sum_ref, out_sum_tar
+        out_U1, out_tie, out_sum_ref, out_sum_tar,
+        tl_buf_ref, tl_buf_tar, tl_n_tar_nz, tl_sum_tar
     )
     
     # Phase 4: Fused stats computation (p-value + log2fc + auroc)
@@ -615,52 +654,62 @@ def mwu_test(
 # Low-level API
 # =============================================================================
 
-@parallel_jit(cache=True, boundscheck=False)
-def mwu_test_csr_arrays(
+@fast_jit(cache=True, boundscheck=False, inline='always')
+def _compute_max_nnz_arrays(indptr: np.ndarray, n_rows: int) -> int:
+    """Compute maximum nnz across all rows from indptr array."""
+    assume(n_rows > 0)
+    
+    max_nnz = 0
+    for row in range(n_rows):
+        nnz = indptr[row + 1] - indptr[row]
+        if nnz > max_nnz:
+            max_nnz = nnz
+    return max_nnz
+
+
+@parallel_jit(cache=True, boundscheck=False, inline='always')
+def _mwu_core_arrays(
     data: np.ndarray,
     indices: np.ndarray,
     indptr: np.ndarray,
     n_rows: int,
-    n_cols: int,
     group_ids: np.ndarray,
+    group_counts: np.ndarray,
     n_targets: int,
-    alternative: int = 0,
-    use_continuity: bool = True
-) -> tuple:
-    """Low-level MWU on raw CSR arrays."""
-    assume(n_rows > 0)
-    assume(n_cols > 0)
-    assume(n_targets > 0)
-    
-    n_groups = n_targets + 1
-    group_counts = _count_groups(group_ids, n_groups)
+    half_n1_n1p1: float,
+    out_U1: np.ndarray,
+    out_tie: np.ndarray,
+    out_sum_ref: np.ndarray,
+    out_sum_tar: np.ndarray,
+    # Thread-local pre-allocated buffers
+    tl_buf_ref: np.ndarray,
+    tl_buf_tar: np.ndarray,
+    tl_n_tar_nz: np.ndarray,
+    tl_sum_tar: np.ndarray,
+) -> None:
+    """Core MWU on raw CSR arrays with thread-local buffers."""
     n_ref = group_counts[0]
-    n_ref_f = float(n_ref)
-    half_n1_n1p1 = 0.5 * n_ref_f * (n_ref_f + 1.0)
     
+    assume(n_rows > 0)
+    assume(n_targets > 0)
     assume(n_ref > 0)
     
-    out_U1 = np.empty((n_rows, n_targets), dtype=np.float64)
-    out_tie = np.empty((n_rows, n_targets), dtype=np.float64)
-    out_sum_ref = np.empty(n_rows, dtype=np.float64)
-    out_sum_tar = np.empty((n_rows, n_targets), dtype=np.float64)
-    out_p = np.empty((n_rows, n_targets), dtype=np.float64)
-    out_log2fc = np.empty((n_rows, n_targets), dtype=np.float64)
-    out_auroc = np.empty((n_rows, n_targets), dtype=np.float64)
-    
     for row in prange(n_rows):
+        # Get thread-local buffer via thread ID
+        tid = get_thread_id()
+        buf_ref = tl_buf_ref[tid]
+        buf_tar = tl_buf_tar[tid]
+        n_tar_nz = tl_n_tar_nz[tid]
+        sum_tar = tl_sum_tar[tid]
+        
         row_start = indptr[row]
         row_end = indptr[row + 1]
         nnz = row_end - row_start
         
-        buf_ref = np.empty(nnz + 1, dtype=np.float64)
-        buf_tar = np.empty((n_targets, nnz + 1), dtype=np.float64)
-        
         n_ref_nz = 0
         sum_ref = 0.0
         
-        n_tar_nz = np.empty(n_targets, dtype=np.int64)
-        sum_tar = np.empty(n_targets, dtype=np.float64)
+        # Reset thread-local counters
         vectorize(4)
         unroll(4)
         for t in range(n_targets):
@@ -708,6 +757,59 @@ def mwu_test_csr_arrays(
             
             out_U1[row, t] = R1 - half_n1_n1p1
             out_tie[row, t] = tie_val
+
+
+@fast_jit(cache=True)
+def mwu_test_csr_arrays(
+    data: np.ndarray,
+    indices: np.ndarray,
+    indptr: np.ndarray,
+    n_rows: int,
+    n_cols: int,
+    group_ids: np.ndarray,
+    n_targets: int,
+    alternative: int = 0,
+    use_continuity: bool = True
+) -> tuple:
+    """Low-level MWU on raw CSR arrays with thread-local buffers."""
+    assume(n_rows > 0)
+    assume(n_cols > 0)
+    assume(n_targets > 0)
+    
+    n_groups = n_targets + 1
+    group_counts = _count_groups(group_ids, n_groups)
+    n_ref = group_counts[0]
+    n_ref_f = float(n_ref)
+    half_n1_n1p1 = 0.5 * n_ref_f * (n_ref_f + 1.0)
+    
+    assume(n_ref > 0)
+    
+    # Pre-allocate outputs
+    out_U1 = np.empty((n_rows, n_targets), dtype=np.float64)
+    out_tie = np.empty((n_rows, n_targets), dtype=np.float64)
+    out_sum_ref = np.empty(n_rows, dtype=np.float64)
+    out_sum_tar = np.empty((n_rows, n_targets), dtype=np.float64)
+    out_p = np.empty((n_rows, n_targets), dtype=np.float64)
+    out_log2fc = np.empty((n_rows, n_targets), dtype=np.float64)
+    out_auroc = np.empty((n_rows, n_targets), dtype=np.float64)
+    
+    # Thread-local buffer pre-allocation
+    n_threads = get_num_threads()
+    max_nnz = _compute_max_nnz_arrays(indptr, n_rows)
+    buf_size = max_nnz + 1
+    
+    tl_buf_ref = np.empty((n_threads, buf_size), dtype=np.float64)
+    tl_buf_tar = np.empty((n_threads, n_targets, buf_size), dtype=np.float64)
+    tl_n_tar_nz = np.empty((n_threads, n_targets), dtype=np.int64)
+    tl_sum_tar = np.empty((n_threads, n_targets), dtype=np.float64)
+    
+    # Core MWU with thread-local buffers
+    _mwu_core_arrays(
+        data, indices, indptr, n_rows,
+        group_ids, group_counts, n_targets, half_n1_n1p1,
+        out_U1, out_tie, out_sum_ref, out_sum_tar,
+        tl_buf_ref, tl_buf_tar, tl_n_tar_nz, tl_sum_tar
+    )
     
     n2_arr = group_counts[1:n_groups].astype(np.float64)
     _compute_stats_fused(

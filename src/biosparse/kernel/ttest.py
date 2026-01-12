@@ -20,7 +20,7 @@ Uses project's CSR sparse matrix type.
 
 import math
 import numpy as np
-from numba import prange, njit
+from numba import prange, njit, get_num_threads, get_thread_id
 
 from biosparse.optim import (
     parallel_jit, fast_jit, assume, vectorize, unroll, 
@@ -130,78 +130,62 @@ def _welford_finalize(count: int, mean: float, m2: float, ddof: int) -> tuple:
 # T-Test for Sparse Matrix (One-vs-All Design)
 # =============================================================================
 
-@parallel_jit(cache=True)
-def ttest(
+# =============================================================================
+# T-Test Core with Thread-Local Buffers
+# =============================================================================
+
+@parallel_jit(cache=True, boundscheck=False, inline='always')
+def _ttest_core(
     csr: CSR,
     group_ids: np.ndarray,
+    group_counts: np.ndarray,
     n_targets: int,
-    use_welch: bool = True
-) -> tuple:
-    """Perform t-test: reference (group 0) vs all targets (groups 1..n_targets).
-    
-    Optimized implementation with batch p-value computation.
-    
-    Args:
-        csr: CSR sparse matrix (CSRF32 or CSRF64), genes x cells
-        group_ids: Group assignment for each column (cell)
-                   0 = reference, 1..n_targets = target groups
-        n_targets: Number of target groups (excludes reference)
-        use_welch: If True, use Welch's t-test; else Student's t-test
-    
-    Returns:
-        (t_stats, p_values, log2_fc):
-            Each has shape (n_rows, n_targets)
-    """
+    n_ref: int,
+    use_welch: bool,
+    out_t_stats: np.ndarray,
+    out_log2_fc: np.ndarray,
+    t_stats_flat: np.ndarray,
+    dfs_flat: np.ndarray,
+    # Thread-local pre-allocated buffers
+    tl_sum_tar: np.ndarray,      # (n_threads, n_targets)
+    tl_sum_sq_tar: np.ndarray,   # (n_threads, n_targets)
+    tl_n_tar_nz: np.ndarray,     # (n_threads, n_targets)
+) -> None:
+    """Core t-test computation with thread-local buffers."""
     # Inline constants
     EPS = 1e-9
     SIGMA_MIN = 1e-15
     
     n_rows = csr.nrows
-    n_cols = csr.ncols
     
-    # Compiler optimization hints
     assume(n_rows > 0)
-    assume(n_cols > 0)
     assume(n_targets > 0)
-    
-    # Count elements in each group (sequential, small)
-    n_groups = n_targets + 1
-    group_counts = np.zeros(n_groups, dtype=np.int64)
-    
-    for i in range(n_cols):
-        g = group_ids[i]
-        if likely(g >= 0 and g < n_groups):
-            group_counts[g] += 1
-    
-    n_ref = group_counts[0]
     assume(n_ref > 0)
-    assume(n_ref <= n_cols)
     
     n_ref_f = float(n_ref)
     inv_n_ref = 1.0 / n_ref_f
     
-    # Allocate output arrays: (n_rows, n_targets)
-    out_t_stats = np.empty((n_rows, n_targets), dtype=np.float64)
-    out_p_values = np.empty((n_rows, n_targets), dtype=np.float64)
-    out_log2_fc = np.empty((n_rows, n_targets), dtype=np.float64)
-    
-    # Intermediate arrays for batch p-value computation
-    total_pairs = n_rows * n_targets
-    t_stats_flat = np.empty(total_pairs, dtype=np.float64)
-    dfs_flat = np.empty(total_pairs, dtype=np.float64)
-    
     for row in prange(n_rows):
+        # Get thread-local buffers via thread ID (zero heap allocation!)
+        tid = get_thread_id()
+        sum_tar = tl_sum_tar[tid]
+        sum_sq_tar = tl_sum_sq_tar[tid]
+        n_tar_nz = tl_n_tar_nz[tid]
+        
         values, col_indices = csr.row_to_numpy(row)
         nnz = len(values)
         
-        # Accumulate sums for each group (thread-local)
+        # Reset thread-local counters
         sum_ref = 0.0
         sum_sq_ref = 0.0
         n_ref_nz = 0
         
-        sum_tar = np.zeros(n_targets, dtype=np.float64)
-        sum_sq_tar = np.zeros(n_targets, dtype=np.float64)
-        n_tar_nz = np.zeros(n_targets, dtype=np.int64)
+        vectorize(4)
+        unroll(4)
+        for t in range(n_targets):
+            sum_tar[t] = 0.0
+            sum_sq_tar[t] = 0.0
+            n_tar_nz[t] = 0
         
         # Main accumulation loop - optimized for sparse data
         for j in range(nnz):
@@ -249,7 +233,7 @@ def ttest(
             mean_tar = sum_tar[t] * inv_n_tar
             
             # Log2 fold change
-            out_log2_fc[row, t] = np.log2((mean_tar + EPS) / (mean_ref + EPS))
+            out_log2_fc[row, t] = math.log2((mean_tar + EPS) / (mean_ref + EPS))
             
             # Target variance
             var_tar = 0.0
@@ -297,13 +281,86 @@ def ttest(
             out_t_stats[row, t] = t_stat
             t_stats_flat[flat_idx] = t_stat
             dfs_flat[flat_idx] = df
+
+
+# =============================================================================
+# T-Test Public API
+# =============================================================================
+
+@parallel_jit(cache=True, inline='always')
+def ttest(
+    csr: CSR,
+    group_ids: np.ndarray,
+    n_targets: int,
+    use_welch: bool = True
+) -> tuple:
+    """Perform t-test: reference (group 0) vs all targets (groups 1..n_targets).
+    
+    Optimized implementation with thread-local buffers and batch p-value computation.
+    
+    Args:
+        csr: CSR sparse matrix (CSRF32 or CSRF64), genes x cells
+        group_ids: Group assignment for each column (cell)
+                   0 = reference, 1..n_targets = target groups
+        n_targets: Number of target groups (excludes reference)
+        use_welch: If True, use Welch's t-test; else Student's t-test
+    
+    Returns:
+        (t_stats, p_values, log2_fc):
+            Each has shape (n_rows, n_targets)
+    """
+    n_rows = csr.nrows
+    n_cols = csr.ncols
+    
+    # Compiler optimization hints
+    assume(n_rows > 0)
+    assume(n_cols > 0)
+    assume(n_targets > 0)
+    
+    # Count elements in each group (sequential, small)
+    n_groups = n_targets + 1
+    group_counts = np.zeros(n_groups, dtype=np.int64)
+    
+    for i in range(n_cols):
+        g = group_ids[i]
+        if likely(g >= 0 and g < n_groups):
+            group_counts[g] += 1
+    
+    n_ref = group_counts[0]
+    assume(n_ref > 0)
+    assume(n_ref <= n_cols)
+    
+    # Allocate output arrays: (n_rows, n_targets)
+    out_t_stats = np.empty((n_rows, n_targets), dtype=np.float64)
+    out_p_values = np.empty((n_rows, n_targets), dtype=np.float64)
+    out_log2_fc = np.empty((n_rows, n_targets), dtype=np.float64)
+    
+    # Intermediate arrays for batch p-value computation
+    total_pairs = n_rows * n_targets
+    t_stats_flat = np.empty(total_pairs, dtype=np.float64)
+    dfs_flat = np.empty(total_pairs, dtype=np.float64)
+    
+    # Thread-local buffer pre-allocation (eliminates heap alloc in prange)
+    n_threads = get_num_threads()
+    tl_sum_tar = np.empty((n_threads, n_targets), dtype=np.float64)
+    tl_sum_sq_tar = np.empty((n_threads, n_targets), dtype=np.float64)
+    tl_n_tar_nz = np.empty((n_threads, n_targets), dtype=np.int64)
+    
+    # Core computation with thread-local buffers
+    _ttest_core(
+        csr, group_ids, group_counts, n_targets, n_ref, use_welch,
+        out_t_stats, out_log2_fc, t_stats_flat, dfs_flat,
+        tl_sum_tar, tl_sum_sq_tar, tl_n_tar_nz
+    )
     
     # Batch compute p-values (vectorized)
     p_flat = np.empty(total_pairs, dtype=np.float64)
     _compute_ttest_pvalues_batch(t_stats_flat, dfs_flat, p_flat)
     
     # Reshape p-values back to (n_rows, n_targets)
-    for row in range(n_rows):
+    for row in prange(n_rows):
+        vectorize(8)
+        unroll(4)
         for t in range(n_targets):
             out_p_values[row, t] = p_flat[row * n_targets + t]
     

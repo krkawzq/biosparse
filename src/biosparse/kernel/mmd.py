@@ -21,10 +21,10 @@ Uses project's CSR sparse matrix type.
 
 import math
 import numpy as np
-from numba import prange, njit
+from numba import prange, njit, get_num_threads, get_thread_id
 
 from biosparse.optim import (
-    parallel_jit, assume, vectorize, interleave, 
+    parallel_jit, fast_jit, assume, vectorize, interleave, 
     unroll, likely, unlikely
 )
 from biosparse._binding import CSR
@@ -177,10 +177,143 @@ def _compute_cross_kernel_sum(
 
 
 # =============================================================================
-# MMD^2 for Sparse Matrices (One-vs-All Design)
+# Helper: Compute max nnz for buffer pre-allocation
 # =============================================================================
 
-@parallel_jit(cache=True)
+@fast_jit(cache=True, boundscheck=False)
+def _compute_max_nnz(csr: CSR) -> int:
+    """Compute maximum nnz across all rows for buffer pre-allocation."""
+    n_rows = csr.nrows
+    assume(n_rows > 0)
+    
+    max_nnz = 0
+    for row in range(n_rows):
+        values, _ = csr.row_to_numpy(row)
+        nnz = len(values)
+        if nnz > max_nnz:
+            max_nnz = nnz
+    return max_nnz
+
+
+# =============================================================================
+# MMD^2 Core with Thread-Local Buffers
+# =============================================================================
+
+@parallel_jit(cache=True, boundscheck=False)
+def _mmd_core(
+    csr: CSR,
+    group_ids: np.ndarray,
+    group_counts: np.ndarray,
+    n_targets: int,
+    n_ref: int,
+    gamma: float,
+    out_mmd: np.ndarray,
+    # Thread-local pre-allocated buffers
+    tl_buf_ref: np.ndarray,      # (n_threads, max_nnz)
+    tl_buf_tar: np.ndarray,      # (n_threads, n_targets, max_nnz)
+    tl_n_tar_nz: np.ndarray,     # (n_threads, n_targets)
+) -> None:
+    """Core MMD computation with row-level parallelism and thread-local buffers."""
+    n_rows = csr.nrows
+    
+    assume(n_rows > 0)
+    assume(n_targets > 0)
+    assume(n_ref > 0)
+    assume(gamma > 0.0)
+    
+    inv_Nx2 = 1.0 / float(n_ref * n_ref)
+    
+    for row in prange(n_rows):
+        # Get thread-local buffers via thread ID (zero heap allocation!)
+        tid = get_thread_id()
+        buf_ref = tl_buf_ref[tid]
+        buf_tar_all = tl_buf_tar[tid]
+        n_tar_nz = tl_n_tar_nz[tid]
+        
+        values, col_indices = csr.row_to_numpy(row)
+        nnz = len(values)
+        
+        # Reset thread-local counters
+        n_ref_nz = 0
+        vectorize(4)
+        unroll(4)
+        for t in range(n_targets):
+            n_tar_nz[t] = 0
+        
+        # Single pass partitioning
+        for j in range(nnz):
+            col_idx = col_indices[j]
+            val = float(values[j])
+            g = group_ids[col_idx]
+            
+            if g == 0:
+                buf_ref[n_ref_nz] = val
+                n_ref_nz += 1
+            elif likely(g > 0 and g <= n_targets):
+                t = g - 1
+                buf_tar_all[t, n_tar_nz[t]] = val
+                n_tar_nz[t] += 1
+        
+        # Pre-compute reference group statistics
+        n_ref_zeros = n_ref - n_ref_nz
+        
+        # Unary sum for ref (k(x, 0) for all non-zero x in ref)
+        sum_ref_unary = _compute_unary_kernel_sum(buf_ref, n_ref_nz, gamma)
+        
+        # Self-kernel sum for ref: sum of all k(x_i, x_j)
+        sum_xx = _compute_self_kernel_sum(
+            buf_ref, n_ref_nz, n_ref_zeros, gamma, sum_ref_unary
+        )
+        
+        # Process each target
+        for t in range(n_targets):
+            n_tar = group_counts[t + 1]
+            
+            if unlikely(n_tar == 0):
+                out_mmd[row, t] = 0.0
+                continue
+            
+            n_tar_nz_t = n_tar_nz[t]
+            n_tar_zeros = n_tar - n_tar_nz_t
+            
+            inv_Ny2 = 1.0 / float(n_tar * n_tar)
+            inv_NxNy = 1.0 / float(n_ref * n_tar)
+            
+            # Trivial case - all zeros in both groups
+            if unlikely(n_ref_nz == 0 and n_tar_nz_t == 0):
+                out_mmd[row, t] = 0.0
+                continue
+            
+            # Get target values slice
+            buf_tar = buf_tar_all[t, :n_tar_nz_t]
+            
+            # Unary sum for target
+            sum_tar_unary = _compute_unary_kernel_sum(buf_tar, n_tar_nz_t, gamma)
+            
+            # Self-kernel sum for target
+            sum_yy = _compute_self_kernel_sum(
+                buf_tar, n_tar_nz_t, n_tar_zeros, gamma, sum_tar_unary
+            )
+            
+            # Cross-kernel sum
+            sum_xy = _compute_cross_kernel_sum(
+                buf_ref, n_ref_nz, n_ref_zeros,
+                buf_tar, n_tar_nz_t, n_tar_zeros,
+                gamma, sum_ref_unary, sum_tar_unary
+            )
+            
+            # MMD^2 = E[k(X,X')] + E[k(Y,Y')] - 2*E[k(X,Y)]
+            mmd2 = sum_xx * inv_Nx2 + sum_yy * inv_Ny2 - 2.0 * sum_xy * inv_NxNy
+            
+            # Clamp to non-negative (numerical errors can cause small negatives)
+            out_mmd[row, t] = mmd2 if mmd2 > 0.0 else 0.0
+
+
+# =============================================================================
+# MMD^2 Public API
+# =============================================================================
+
+@njit
 def mmd_rbf(
     csr: CSR,
     group_ids: np.ndarray,
@@ -189,7 +322,7 @@ def mmd_rbf(
 ) -> np.ndarray:
     """Compute MMD^2 with RBF kernel: ref (group 0) vs all targets.
     
-    Optimized implementation with helper functions for kernel computation.
+    Optimized implementation with thread-local buffers and prange parallelism.
     
     Args:
         csr: CSR sparse matrix (features x samples)
@@ -230,88 +363,18 @@ def mmd_rbf(
     # Allocate output
     out_mmd = np.empty((n_rows, n_targets), dtype=np.float64)
     
-    row = 0
-    for values, col_indices in csr:
-        nnz = len(values)
-        
-        # Partition values by group (thread-local buffers)
-        buf_ref = np.empty(nnz, dtype=np.float64)
-        n_ref_nz = 0
-        
-        buf_tar_all = np.empty((n_targets, nnz), dtype=np.float64)
-        n_tar_nz = np.zeros(n_targets, dtype=np.int64)
-        
-        # Single pass partitioning
-        for j in range(nnz):
-            col_idx = col_indices[j]
-            val = float(values[j])
-            g = group_ids[col_idx]
-            
-            if g == 0:
-                buf_ref[n_ref_nz] = val
-                n_ref_nz += 1
-            elif likely(g > 0 and g <= n_targets):
-                t = g - 1
-                buf_tar_all[t, n_tar_nz[t]] = val
-                n_tar_nz[t] += 1
-        
-        # Pre-compute reference group statistics
-        n_ref_zeros = n_ref - n_ref_nz
-        
-        # Unary sum for ref (k(x, 0) for all non-zero x in ref)
-        sum_ref_unary = _compute_unary_kernel_sum(buf_ref, n_ref_nz, gamma)
-        
-        # Self-kernel sum for ref: sum of all k(x_i, x_j)
-        sum_xx = _compute_self_kernel_sum(
-            buf_ref, n_ref_nz, n_ref_zeros, gamma, sum_ref_unary
-        )
-        
-        inv_Nx2 = 1.0 / float(n_ref * n_ref)
-        
-        # Process each target
-        for t in range(n_targets):
-            n_tar = group_counts[t + 1]
-            
-            if unlikely(n_tar == 0):
-                out_mmd[row, t] = 0.0
-                continue
-            
-            n_tar_nz_t = n_tar_nz[t]
-            n_tar_zeros = n_tar - n_tar_nz_t
-            
-            inv_Ny2 = 1.0 / float(n_tar * n_tar)
-            inv_NxNy = 1.0 / float(n_ref * n_tar)
-            
-            # Trivial case - all zeros in both groups
-            if unlikely(n_ref_nz == 0 and n_tar_nz_t == 0):
-                # k(0,0) = 1, so MMD^2 = 1 + 1 - 2 = 0
-                out_mmd[row, t] = 0.0
-                continue
-            
-            # Get target values slice
-            buf_tar = buf_tar_all[t, :n_tar_nz_t]
-            
-            # Unary sum for target
-            sum_tar_unary = _compute_unary_kernel_sum(buf_tar, n_tar_nz_t, gamma)
-            
-            # Self-kernel sum for target
-            sum_yy = _compute_self_kernel_sum(
-                buf_tar, n_tar_nz_t, n_tar_zeros, gamma, sum_tar_unary
-            )
-            
-            # Cross-kernel sum
-            sum_xy = _compute_cross_kernel_sum(
-                buf_ref, n_ref_nz, n_ref_zeros,
-                buf_tar, n_tar_nz_t, n_tar_zeros,
-                gamma, sum_ref_unary, sum_tar_unary
-            )
-            
-            # MMD^2 = E[k(X,X')] + E[k(Y,Y')] - 2*E[k(X,Y)]
-            mmd2 = sum_xx * inv_Nx2 + sum_yy * inv_Ny2 - 2.0 * sum_xy * inv_NxNy
-            
-            # Clamp to non-negative (numerical errors can cause small negatives)
-            out_mmd[row, t] = mmd2 if mmd2 > 0.0 else 0.0
-        
-        row += 1
+    # Thread-local buffer pre-allocation (eliminates heap alloc in prange)
+    n_threads = get_num_threads()
+    max_nnz = _compute_max_nnz(csr)
+    
+    tl_buf_ref = np.empty((n_threads, max_nnz), dtype=np.float64)
+    tl_buf_tar = np.empty((n_threads, n_targets, max_nnz), dtype=np.float64)
+    tl_n_tar_nz = np.empty((n_threads, n_targets), dtype=np.int64)
+    
+    # Core computation with thread-local buffers
+    _mmd_core(
+        csr, group_ids, group_counts, n_targets, n_ref, gamma,
+        out_mmd, tl_buf_ref, tl_buf_tar, tl_n_tar_nz
+    )
     
     return out_mmd
