@@ -10,14 +10,17 @@ Design:
 
 Computes per-row t-statistics, p-values, and log2 fold change.
 Uses project's CSR sparse matrix type.
+
+P-values are computed using the exact Student's t-distribution CDF,
+matching scipy.special.stdtr implementation.
 """
 
 import numpy as np
 from numba import prange
-from scipy import special
 
 from biosparse.optim import parallel_jit, assume, vectorize
 from biosparse._binding import CSR
+from biosparse.kernel.math._tdist import t_test_pvalue
 
 # Import for type hints only
 import biosparse._numba  # noqa: F401 - registers CSR/CSC types
@@ -55,7 +58,6 @@ def ttest(
         (t_stats, p_values, log2_fc):
             Each has shape (n_rows, n_targets)
     """
-    INV_SQRT2 = 0.7071067811865475
     EPS = 1e-9
     SIGMA_MIN = 1e-15
     
@@ -85,9 +87,8 @@ def ttest(
     out_p_values = np.empty((n_rows, n_targets), dtype=np.float64)
     out_log2_fc = np.empty((n_rows, n_targets), dtype=np.float64)
     
-    # Parallel row processing
-    for row in prange(n_rows):
-        values, col_indices = csr.row(row)
+    row = 0
+    for values, col_indices in csr:
         nnz = len(values)
         
         # Accumulate sums for each group (thread-local)
@@ -117,13 +118,10 @@ def ttest(
         # Reference mean (including zeros)
         mean_ref = sum_ref * inv_n_ref
         
-        # Reference variance
+        # Reference variance: var = (sq_sum - n * mean^2) / (n - 1)
         var_ref = 0.0
         if n_ref > 1:
-            mean_ref_nz = sum_ref / float(n_ref_nz) if n_ref_nz > 0 else 0.0
-            var_numer_ref = sum_sq_ref - float(n_ref_nz) * mean_ref_nz * mean_ref_nz
-            n_zeros_ref = n_ref - n_ref_nz
-            var_numer_ref += float(n_zeros_ref) * mean_ref * mean_ref
+            var_numer_ref = sum_sq_ref - n_ref_f * mean_ref * mean_ref
             var_ref = var_numer_ref / (n_ref_f - 1.0)
             if var_ref < 0.0:
                 var_ref = 0.0
@@ -148,13 +146,10 @@ def ttest(
             # Log2 fold change
             out_log2_fc[row, t] = np.log2((mean_tar + EPS) / (mean_ref + EPS))
             
-            # Target variance
+            # Target variance: var = (sq_sum - n * mean^2) / (n - 1)
             var_tar = 0.0
             if n_tar > 1:
-                mean_tar_nz = sum_tar[t] / float(n_tar_nz_t) if n_tar_nz_t > 0 else 0.0
-                var_numer_tar = sum_sq_tar[t] - float(n_tar_nz_t) * mean_tar_nz * mean_tar_nz
-                n_zeros_tar = n_tar - n_tar_nz_t
-                var_numer_tar += float(n_zeros_tar) * mean_tar * mean_tar
+                var_numer_tar = sum_sq_tar[t] - n_tar_f * mean_tar * mean_tar
                 var_tar = var_numer_tar / (n_tar_f - 1.0)
                 if var_tar < 0.0:
                     var_tar = 0.0
@@ -182,16 +177,8 @@ def ttest(
                     else:
                         df = 1.0
                     
-                    # P-value using normal approximation for large df
-                    abs_t = abs(t_stat)
-                    if df > 30.0:
-                        sf = 0.5 * special.erfc(abs_t * INV_SQRT2)
-                        p_val = 2.0 * sf
-                    else:
-                        # Simple approximation for small df
-                        z = abs_t / np.sqrt(df + abs_t * abs_t)
-                        cdf = 0.5 * (1.0 + z)
-                        p_val = 2.0 * (1.0 - cdf)
+                    # P-value using exact t-distribution (two-sided)
+                    p_val = t_test_pvalue(t_stat, df, 0)
             else:
                 # Student's t-test (pooled variance)
                 pooled_df = n_ref_f + n_tar_f - 2.0
@@ -204,23 +191,18 @@ def ttest(
                     if se > SIGMA_MIN:
                         t_stat = mean_diff / se
                         
-                        # P-value
-                        abs_t = abs(t_stat)
-                        if pooled_df > 30.0:
-                            sf = 0.5 * special.erfc(abs_t * INV_SQRT2)
-                            p_val = 2.0 * sf
-                        else:
-                            z = abs_t / np.sqrt(pooled_df + abs_t * abs_t)
-                            cdf = 0.5 * (1.0 + z)
-                            p_val = 2.0 * (1.0 - cdf)
+                        # P-value using exact t-distribution (two-sided)
+                        p_val = t_test_pvalue(t_stat, pooled_df, 0)
             
             out_t_stats[row, t] = t_stat
             out_p_values[row, t] = p_val
+        
+        row += 1
     
     return out_t_stats, out_p_values, out_log2_fc
 
 
-@parallel_jit
+@fast_jit
 def welch_ttest(
     csr: CSR,
     group_ids: np.ndarray,
@@ -239,7 +221,7 @@ def welch_ttest(
     return ttest(csr, group_ids, n_targets, True)
 
 
-@parallel_jit
+@fast_jit
 def student_ttest(
     csr: CSR,
     group_ids: np.ndarray,

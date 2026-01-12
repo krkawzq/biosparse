@@ -11,9 +11,9 @@ Functions:
     - pooled_se: Pooled standard error
 """
 
+import math
 import numpy as np
 from numba import prange
-from scipy import special
 
 from biosparse.optim import parallel_jit, assume
 
@@ -189,7 +189,7 @@ def welch_test(
         
         if df > 30.0:
             # Normal approximation
-            sf = 0.5 * special.erfc(abs_t * INV_SQRT2)
+            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
             out[i] = 2.0 * sf
         else:
             # Sigmoid heuristic for small DF
@@ -251,7 +251,7 @@ def student_test(
         
         if df > 30.0:
             # Normal approximation
-            sf = 0.5 * special.erfc(abs_t * INV_SQRT2)
+            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
             out[i] = 2.0 * sf
         else:
             # Sigmoid heuristic for small DF
@@ -484,7 +484,7 @@ def welch_test_new(
         abs_t = abs(t_stat)
         
         if df > 30.0:
-            sf = 0.5 * special.erfc(abs_t * INV_SQRT2)
+            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
             out[i] = 2.0 * sf
         else:
             z = abs_t / np.sqrt(df + abs_t * abs_t)
@@ -529,7 +529,7 @@ def student_test_new(
         abs_t = abs(t_stat)
         
         if df > 30.0:
-            sf = 0.5 * special.erfc(abs_t * INV_SQRT2)
+            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
             out[i] = 2.0 * sf
         else:
             z = abs_t / np.sqrt(df + abs_t * abs_t)

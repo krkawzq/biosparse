@@ -101,11 +101,11 @@ class TestWelchTTest:
             scipy_p = scipy_result.pvalue
             
             # T-statistics should be close
-            np.testing.assert_allclose(our_t, scipy_t, rtol=0.05, atol=1e-6,
+            np.testing.assert_allclose(our_t, scipy_t, rtol=1e-6, atol=1e-10,
                 err_msg=f"Gene {gene_idx}: t-stat mismatch")
             
-            # P-values should be close
-            np.testing.assert_allclose(our_p, scipy_p, rtol=0.1, atol=1e-6,
+            # P-values should match closely (using exact t-distribution)
+            np.testing.assert_allclose(our_p, scipy_p, rtol=1e-6, atol=1e-10,
                 err_msg=f"Gene {gene_idx}: p-value mismatch")
     
     def test_welch_log2fc(self, gene_expression_matrix, group_ids_two):
@@ -178,12 +178,12 @@ class TestStudentTTest:
             our_p = p_values[gene_idx, 0]
             scipy_p = scipy_result.pvalue
             
-            # T-statistics should be close
-            np.testing.assert_allclose(our_t, scipy_t, rtol=0.05, atol=1e-6,
+            # T-statistics should match closely
+            np.testing.assert_allclose(our_t, scipy_t, rtol=1e-6, atol=1e-10,
                 err_msg=f"Gene {gene_idx}: t-stat mismatch")
             
-            # P-values should be close
-            np.testing.assert_allclose(our_p, scipy_p, rtol=0.1, atol=1e-6,
+            # P-values should match closely (using exact t-distribution)
+            np.testing.assert_allclose(our_p, scipy_p, rtol=1e-6, atol=1e-10,
                 err_msg=f"Gene {gene_idx}: p-value mismatch")
 
 
@@ -235,10 +235,10 @@ class TestTTestMultiGroup:
                 our_p = p_values[gene_idx, target_idx]
                 scipy_p = scipy_result.pvalue
                 
-                np.testing.assert_allclose(our_t, scipy_t, rtol=0.1, atol=1e-6,
+                np.testing.assert_allclose(our_t, scipy_t, rtol=1e-6, atol=1e-10,
                     err_msg=f"Gene {gene_idx}, Target {target_idx}: t-stat mismatch")
                 
-                np.testing.assert_allclose(our_p, scipy_p, rtol=0.15, atol=1e-6,
+                np.testing.assert_allclose(our_p, scipy_p, rtol=1e-6, atol=1e-10,
                     err_msg=f"Gene {gene_idx}, Target {target_idx}: p-value mismatch")
 
 

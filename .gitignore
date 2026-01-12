@@ -27,5 +27,7 @@ pip-wheel-metadata/
 
 # Misc
 .DS_Store
-# End of Selection
-```
+
+
+.pytest_cache/
+

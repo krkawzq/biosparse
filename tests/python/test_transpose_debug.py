@@ -5,7 +5,10 @@ import scipy.sparse as sp
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
+# Add src to path so biosparse package can be imported
+_src = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
 from biosparse._binding._sparse import CSRF64, CSCF64
 

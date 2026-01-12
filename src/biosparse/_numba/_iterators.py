@@ -3,9 +3,10 @@
 This module provides full iterator support for sparse matrices, enabling
 `for values, indices in csr:` syntax in JIT-compiled code.
 
-Key design: The iterator uses a pointer (index_ptr) to store the current index,
-allowing the index to be mutated across iterations even though Numba passes
-the iterator struct by value.
+Key design: The iterator stores the FFI handle and fetches row/column data
+on-demand using FFI calls. This ensures correct behavior for both:
+- Python-created objects (passed to JIT)
+- JIT-created objects (e.g., from clone(), to_csc(), slice_rows())
 """
 
 from numba import types
@@ -25,7 +26,7 @@ def csr_getiter_impl(context, builder, sig, args):
     """Create an iterator for CSR matrix.
 
     This is called when entering a `for` loop with a CSR object.
-    We create an iterator struct that references the parent's data.
+    We create an iterator struct that stores the handle for FFI calls.
     """
     [csr_val] = args
     csr_type = sig.args[0]
@@ -42,11 +43,11 @@ def csr_getiter_impl(context, builder, sig, args):
     index_alloca = cgutils.alloca_once_value(builder, context.get_constant(types.int64, 0))
 
     # Initialize iterator fields
-    it.values_ptrs = csr.values_ptrs
-    it.indices_ptrs = csr.indices_ptrs
-    it.row_lens = csr.row_lens
+    it.handle = csr.handle
     it.nrows = csr.nrows
-    it.index_ptr = index_alloca  # Store pointer to the mutable index
+    it.index_ptr = index_alloca
+    # Store dtype info for FFI dispatch
+    it.dtype_is_f64 = context.get_constant(types.boolean, csr_type.dtype == types.float64)
 
     # Return the iterator value
     return builder.load(iter_alloca)
@@ -61,8 +62,8 @@ def csr_getiter_impl(context, builder, sig, args):
 def csr_iternext_impl(context, builder, sig, args, result):
     """Get the next row from CSR iterator.
 
-    This is called for each iteration of the loop. We yield (values, indices)
-    tuples and increment the current index via the pointer.
+    This is called for each iteration of the loop. We use FFI to fetch
+    the row data (values, indices, length) and yield them as numpy arrays.
     """
     [iter_type] = sig.args
     [iter_val] = args
@@ -79,18 +80,42 @@ def csr_iternext_impl(context, builder, sig, args, result):
     result.set_valid(is_valid)
 
     with builder.if_then(is_valid):
-        # Get pointers for current row
-        val_ptr_addr = builder.gep(it.values_ptrs, [index])
-        val_ptr = builder.load(val_ptr_addr)
-
-        idx_ptr_addr = builder.gep(it.indices_ptrs, [index])
-        idx_ptr = builder.load(idx_ptr_addr)
-
-        len_addr = builder.gep(it.row_lens, [index])
-        length = builder.load(len_addr)
+        handle = it.handle
+        dtype = iter_type.csr_type.dtype
+        
+        # Determine FFI function suffix based on dtype
+        if dtype == types.float64:
+            val_ptr_fn_name = "csr_f64_row_values_ptr"
+            idx_ptr_fn_name = "csr_f64_row_indices_ptr"
+            row_len_fn_name = "csr_f64_row_len"
+        else:
+            val_ptr_fn_name = "csr_f32_row_values_ptr"
+            idx_ptr_fn_name = "csr_f32_row_indices_ptr"
+            row_len_fn_name = "csr_f32_row_len"
+        
+        # FFI call to get row values pointer
+        # Signature: void* csr_f64_row_values_ptr(void* handle, size_t row)
+        fnty_ptr = lir.FunctionType(
+            lir.IntType(8).as_pointer(),
+            [lir.IntType(8).as_pointer(), lir.IntType(64)]
+        )
+        fn_val_ptr = cgutils.get_or_insert_function(builder.module, fnty_ptr, val_ptr_fn_name)
+        val_ptr = builder.call(fn_val_ptr, [handle, index])
+        
+        # FFI call to get row indices pointer
+        fn_idx_ptr = cgutils.get_or_insert_function(builder.module, fnty_ptr, idx_ptr_fn_name)
+        idx_ptr = builder.call(fn_idx_ptr, [handle, index])
+        
+        # FFI call to get row length
+        # Signature: int64 csr_f64_row_len(void* handle, size_t row)
+        fnty_len = lir.FunctionType(
+            lir.IntType(64),
+            [lir.IntType(8).as_pointer(), lir.IntType(64)]
+        )
+        fn_row_len = cgutils.get_or_insert_function(builder.module, fnty_len, row_len_fn_name)
+        length = builder.call(fn_row_len, [handle, index])
 
         # Create array views for values and indices
-        dtype = iter_type.csr_type.dtype
         val_array_type = types.Array(dtype, 1, 'C')
         idx_array_type = types.Array(types.int64, 1, 'C')
 
@@ -162,11 +187,10 @@ def csc_getiter_impl(context, builder, sig, args):
     index_alloca = cgutils.alloca_once_value(builder, context.get_constant(types.int64, 0))
 
     # Initialize iterator fields
-    it.values_ptrs = csc.values_ptrs
-    it.indices_ptrs = csc.indices_ptrs
-    it.col_lens = csc.col_lens
+    it.handle = csc.handle
     it.ncols = csc.ncols
     it.index_ptr = index_alloca
+    it.dtype_is_f64 = context.get_constant(types.boolean, csc_type.dtype == types.float64)
 
     # Return the iterator value
     return builder.load(iter_alloca)
@@ -195,18 +219,40 @@ def csc_iternext_impl(context, builder, sig, args, result):
     result.set_valid(is_valid)
 
     with builder.if_then(is_valid):
-        # Get pointers for current column
-        val_ptr_addr = builder.gep(it.values_ptrs, [index])
-        val_ptr = builder.load(val_ptr_addr)
-
-        idx_ptr_addr = builder.gep(it.indices_ptrs, [index])
-        idx_ptr = builder.load(idx_ptr_addr)
-
-        len_addr = builder.gep(it.col_lens, [index])
-        length = builder.load(len_addr)
+        handle = it.handle
+        dtype = iter_type.csc_type.dtype
+        
+        # Determine FFI function suffix based on dtype
+        if dtype == types.float64:
+            val_ptr_fn_name = "csc_f64_col_values_ptr"
+            idx_ptr_fn_name = "csc_f64_col_indices_ptr"
+            col_len_fn_name = "csc_f64_col_len"
+        else:
+            val_ptr_fn_name = "csc_f32_col_values_ptr"
+            idx_ptr_fn_name = "csc_f32_col_indices_ptr"
+            col_len_fn_name = "csc_f32_col_len"
+        
+        # FFI call to get column values pointer
+        fnty_ptr = lir.FunctionType(
+            lir.IntType(8).as_pointer(),
+            [lir.IntType(8).as_pointer(), lir.IntType(64)]
+        )
+        fn_val_ptr = cgutils.get_or_insert_function(builder.module, fnty_ptr, val_ptr_fn_name)
+        val_ptr = builder.call(fn_val_ptr, [handle, index])
+        
+        # FFI call to get column indices pointer
+        fn_idx_ptr = cgutils.get_or_insert_function(builder.module, fnty_ptr, idx_ptr_fn_name)
+        idx_ptr = builder.call(fn_idx_ptr, [handle, index])
+        
+        # FFI call to get column length
+        fnty_len = lir.FunctionType(
+            lir.IntType(64),
+            [lir.IntType(8).as_pointer(), lir.IntType(64)]
+        )
+        fn_col_len = cgutils.get_or_insert_function(builder.module, fnty_len, col_len_fn_name)
+        length = builder.call(fn_col_len, [handle, index])
 
         # Create array views
-        dtype = iter_type.csc_type.dtype
         val_array_type = types.Array(dtype, 1, 'C')
         idx_array_type = types.Array(types.int64, 1, 'C')
 

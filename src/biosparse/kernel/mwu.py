@@ -8,20 +8,25 @@ Design:
     - One-vs-all: computes ref vs target_i for all targets at once
     - Output shape: (n_rows, n_targets) for multi-target results
 
-Uses normal approximation with tie correction:
-    mu = 0.5 * n1 * n2
+Uses normal approximation with tie correction (matches scipy.stats.mannwhitneyu):
+    mu = n1 * n2 / 2
     var = (n1 * n2 / 12) * (N + 1 - tie_correction)
-    z = (|U - mu| - cc) / sd
-    p = 2 * normal_sf(z)
+    z = (U - mu - continuity_correction) / sigma
+    p = norm.sf(z) * factor
+
+Alternative hypothesis options:
+    0 = two-sided (default)
+    1 = greater (x > y)
+    -1 = less (x < y)
 
 Uses project's CSR sparse matrix type.
 """
 
+import math
 import numpy as np
 from numba import prange
-from scipy import special
 
-from biosparse.optim import parallel_jit, assume, vectorize
+from biosparse.optim import parallel_jit, assume, likely, unlikely
 from biosparse._binding import CSR
 
 # Import for type hints only
@@ -62,6 +67,22 @@ def count_groups(group_ids: np.ndarray, n_groups: int) -> np.ndarray:
 
 
 # =============================================================================
+# Normal distribution SF (survival function)
+# =============================================================================
+
+from numba import njit
+
+@njit(cache=True, fastmath=True, inline='always')
+def _normal_sf(z: float) -> float:
+    """Normal distribution survival function P(Z > z).
+    
+    Uses erfc for numerical stability.
+    """
+    INV_SQRT2 = 0.7071067811865475  # 1/sqrt(2), inline to avoid closure cost
+    return 0.5 * math.erfc(z * INV_SQRT2)
+
+
+# =============================================================================
 # MWU Test for Sparse Matrix (One-vs-All Design)
 # =============================================================================
 
@@ -69,28 +90,40 @@ def count_groups(group_ids: np.ndarray, n_groups: int) -> np.ndarray:
 def mwu_test(
     csr: CSR,
     group_ids: np.ndarray,
-    n_targets: int
+    n_targets: int,
+    alternative: int = 0,
+    use_continuity: bool = True
 ) -> tuple:
     """Perform MWU test: reference (group 0) vs all targets (groups 1..n_targets).
     
-    Optimized with prange for parallel row processing.
+    Matches scipy.stats.mannwhitneyu algorithm (asymptotic method).
     
     Args:
         csr: CSR sparse matrix (CSRF32 or CSRF64), genes x cells
         group_ids: Group assignment for each column (cell)
                    0 = reference, 1..n_targets = target groups
         n_targets: Number of target groups (excludes reference)
+        alternative: Alternative hypothesis
+                    0 = two-sided (default)
+                    1 = greater (ref > target)
+                    -1 = less (ref < target)
+        use_continuity: Whether to apply continuity correction (default True)
     
     Returns:
         (u_stats, p_values, log2_fc, auroc):
             Each has shape (n_rows, n_targets)
+            
+    Notes:
+        - U statistic is always U1 (for reference group)
+        - AUROC = U / (n1 * n2), ranges from 0 to 1
+        - P-values use normal approximation with tie correction
     """
-    INV_SQRT2 = 0.7071067811865475
+    # Inline magic numbers for numba performance.
     EPS = 1e-9
     SIGMA_MIN = 1e-12
-    
+    INF = 1e308
+
     n_rows = csr.nrows
-    n_cols = csr.ncols
     
     assume(n_rows > 0)
     assume(n_targets > 0)
@@ -110,13 +143,11 @@ def mwu_test(
     
     n_ref_f = float(n_ref)
     
-    # Parallel row processing
-    for row in prange(n_rows):
-        values, col_indices = csr.row(row)
+    row = 0
+    for values, col_indices in csr:
         nnz = len(values)
         
         # Partition values by group
-        # buf_ref for group 0, buf_tar[t] for group t+1
         buf_ref = np.empty(nnz, dtype=np.float64)
         n_ref_nz = 0
         sum_ref = 0.0
@@ -158,7 +189,7 @@ def mwu_test(
         for t in range(n_targets):
             n_tar = group_counts[t + 1]
             
-            if n_tar == 0:
+            if unlikely(n_tar == 0):
                 out_u_stats[row, t] = 0.0
                 out_p_values[row, t] = 1.0
                 out_log2_fc[row, t] = 0.0
@@ -170,12 +201,9 @@ def mwu_test(
             
             # Constants for this target
             N = n_ref_f + n_tar_f
+            n1_n2 = n_ref_f * n_tar_f
             half_n1_n1p1 = 0.5 * n_ref_f * (n_ref_f + 1.0)
-            half_n1_n2 = 0.5 * n_ref_f * n_tar_f
-            var_base = n_ref_f * n_tar_f / 12.0
-            N_p1 = N + 1.0
-            N_Nm1 = N * (N - 1.0)
-            inv_N_Nm1 = 1.0 / N_Nm1 if N_Nm1 > EPS else 0.0
+            mu = 0.5 * n1_n2  # Expected value under null
             
             # Log2 fold change
             mean_tar = sum_tar[t] / n_tar_f
@@ -185,9 +213,9 @@ def mwu_test(
             buf_tar_slice = buf_tar_all[t, :n_tar_nz_t]
             buf_tar_slice.sort()
             
-            # Compute rank sum with ties
+            # Compute rank sum with ties (for reference group = R1)
             R1 = 0.0
-            tie_sum = 0.0
+            tie_sum = 0.0  # sum of (t^3 - t) for each tie group
             
             n_ref_zeros = n_ref - n_ref_nz
             n_tar_zeros = n_tar - n_tar_nz_t
@@ -206,7 +234,6 @@ def mwu_test(
             
             # Merge negative values
             while p1 < na_neg_ref or p2 < na_neg_tar:
-                INF = 1e308
                 v1 = buf_ref_slice[p1] if p1 < na_neg_ref else INF
                 v2 = buf_tar_slice[p2] if p2 < na_neg_tar else INF
                 val = v1 if v1 < v2 else v2
@@ -227,7 +254,7 @@ def mwu_test(
                 
                 if tc > 1:
                     td = float(tc)
-                    tie_sum += td * (td * td - 1.0)
+                    tie_sum += td * td * td - td  # t^3 - t
                 
                 rank += tc
             
@@ -238,7 +265,7 @@ def mwu_test(
                 
                 if total_zeros > 1:
                     tz = float(total_zeros)
-                    tie_sum += tz * (tz * tz - 1.0)
+                    tie_sum += tz * tz * tz - tz
                 
                 rank += total_zeros
             
@@ -247,7 +274,6 @@ def mwu_test(
             p2 = na_neg_tar
             
             while p1 < n_ref_nz or p2 < n_tar_nz_t:
-                INF = 1e308
                 v1 = buf_ref_slice[p1] if p1 < n_ref_nz else INF
                 v2 = buf_tar_slice[p2] if p2 < n_tar_nz_t else INF
                 val = v1 if v1 < v2 else v2
@@ -268,40 +294,74 @@ def mwu_test(
                 
                 if tc > 1:
                     td = float(tc)
-                    tie_sum += td * (td * td - 1.0)
+                    tie_sum += td * td * td - td
                 
                 rank += tc
             
-            # Compute U and p-value
-            U = R1 - half_n1_n1p1
+            # Compute U statistics
+            # U1 = R1 - n1*(n1+1)/2 (U for reference group)
+            # U2 = n1*n2 - U1 (U for target group)
+            U1 = R1 - half_n1_n1p1
+            U2 = n1_n2 - U1
             
-            tie_term = tie_sum * inv_N_Nm1
-            var = var_base * (N_p1 - tie_term)
+            out_u_stats[row, t] = U1
+            
+            # Compute variance with tie correction
+            # var = (n1*n2/12) * ((N+1) - tie_sum / (N*(N-1)))
+            N_Nm1 = N * (N - 1.0)
+            if likely(N_Nm1 > EPS):
+                tie_term = tie_sum / N_Nm1
+                var = (n1_n2 / 12.0) * (N + 1.0 - tie_term)
+            else:
+                var = 0.0
+            
             sigma = np.sqrt(var) if var > 0.0 else 0.0
             
-            out_u_stats[row, t] = U
-            
-            if sigma <= SIGMA_MIN:
+            # Compute p-value based on alternative hypothesis
+            if unlikely(sigma <= SIGMA_MIN):
                 out_p_values[row, t] = 1.0
             else:
-                z_numer = U - half_n1_n2
+                # Select U statistic based on alternative
+                # scipy: for 'greater', use U1's SF; for 'less', use U2's SF
+                # for 'two-sided', use max(U1, U2) and multiply by 2
+                if alternative == 1:  # greater
+                    U = U1
+                    factor = 1.0
+                elif alternative == -1:  # less
+                    U = U2
+                    factor = 1.0
+                else:  # two-sided (default)
+                    U = U1 if U1 > U2 else U2
+                    factor = 2.0
                 
-                if z_numer > 0.5:
-                    correction = 0.5
-                elif z_numer < -0.5:
-                    correction = -0.5
-                else:
-                    correction = -z_numer
-                z_numer += correction
+                # Compute z-score
+                # z = (U - mu) / sigma, with optional continuity correction
+                z_numer = U - mu
+                if use_continuity:
+                    # Continuity correction: subtract 0.5 from |U - mu|
+                    # This is equivalent to: z = (U - mu - 0.5) / sigma for SF
+                    z_numer -= 0.5
                 
                 z = z_numer / sigma
-                p_val = special.erfc(abs(z) * INV_SQRT2)
+                
+                # P-value = SF(z) * factor
+                p_val = _normal_sf(z) * factor
+                
+                # Clamp to [0, 1]
+                if p_val > 1.0:
+                    p_val = 1.0
+                if p_val < 0.0:
+                    p_val = 0.0
+                
                 out_p_values[row, t] = p_val
             
-            # AUROC
-            if n_ref_f * n_tar_f > 0.0:
-                out_auroc[row, t] = U / (n_ref_f * n_tar_f) + 0.5
+            # AUROC: U1 / (n1 * n2) is the probability that a random sample from
+            # reference has a higher rank than a random sample from target
+            if likely(n1_n2 > 0.0):
+                out_auroc[row, t] = U1 / n1_n2
             else:
                 out_auroc[row, t] = 0.5
+        
+        row += 1
     
     return out_u_stats, out_p_values, out_log2_fc, out_auroc

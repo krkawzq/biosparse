@@ -175,11 +175,9 @@ def select_top_k(scores: np.ndarray, k: int) -> tuple:
 # Moment Computation for Sparse Matrices (CSR type)
 # =============================================================================
 
-@parallel_jit
+@fast_jit  # Note: CSR iterator cannot be parallelized with prange
 def compute_moments(csr: CSR, ddof: int) -> tuple:
     """Compute per-row mean and variance for CSR sparse matrix.
-    
-    Optimized with prange for parallel row processing.
     
     Args:
         csr: CSR sparse matrix (CSRF32 or CSRF64)
@@ -197,14 +195,14 @@ def compute_moments(csr: CSR, ddof: int) -> tuple:
     out_means = np.empty(n_rows, dtype=np.float64)
     out_vars = np.empty(n_rows, dtype=np.float64)
     
-    # Parallel row processing using direct row access
-    for row_idx in prange(n_rows):
-        values, _ = csr.row(row_idx)
+    row_idx = 0
+    for values, indices in csr:
         n_nnz = len(values)
         
         row_sum = 0.0
         row_sq_sum = 0.0
         
+        vectorize(8)
         for j in range(n_nnz):
             val = values[j]
             row_sum += val
@@ -219,6 +217,7 @@ def compute_moments(csr: CSR, ddof: int) -> tuple:
         
         out_means[row_idx] = mu
         out_vars[row_idx] = var
+        row_idx += 1
     
     return out_means, out_vars
 
@@ -226,8 +225,6 @@ def compute_moments(csr: CSR, ddof: int) -> tuple:
 @parallel_jit
 def compute_clipped_moments(csr: CSR, clip_vals: np.ndarray) -> tuple:
     """Compute per-row mean and variance with clipping for VST.
-    
-    Optimized with prange for parallel row processing.
     
     Args:
         csr: CSR sparse matrix (CSRF32 or CSRF64)
@@ -246,15 +243,15 @@ def compute_clipped_moments(csr: CSR, clip_vals: np.ndarray) -> tuple:
     out_means = np.empty(n_rows, dtype=np.float64)
     out_vars = np.empty(n_rows, dtype=np.float64)
     
-    # Parallel row processing
-    for row_idx in prange(n_rows):
-        values, _ = csr.row(row_idx)
+    row_idx = 0
+    for values, indices in csr:
         clip = clip_vals[row_idx]
         n_nnz = len(values)
         
         row_sum = 0.0
         row_sq_sum = 0.0
         
+        vectorize(8)
         for j in range(n_nnz):
             val = values[j]
             if val > clip:
@@ -271,19 +268,19 @@ def compute_clipped_moments(csr: CSR, clip_vals: np.ndarray) -> tuple:
         
         out_means[row_idx] = mu
         out_vars[row_idx] = var
+        row_idx += 1
     
     return out_means, out_vars
 
 
 # =============================================================================
-# Complete HVG Selection
+# Complete HVG Selection (Python wrapper, not JIT)
 # =============================================================================
 
-@parallel_jit
 def select_hvg_by_dispersion(csr: CSR, n_top: int) -> tuple:
     """Select highly variable genes by dispersion.
     
-    Optimized with prange for parallel dispersion computation.
+    This is a Python wrapper that calls JIT-compiled helper functions.
     
     Args:
         csr: CSR sparse matrix (genes x cells)
@@ -292,60 +289,13 @@ def select_hvg_by_dispersion(csr: CSR, n_top: int) -> tuple:
     Returns:
         (indices, mask, dispersions): Selected gene info
     """
-    EPSILON = 1e-12
-    n_rows = csr.nrows
-    N = float(csr.ncols)
+    # Step 1: Compute moments using JIT function
+    means, vars_ = compute_moments(csr, ddof=1)
     
-    assume(n_rows > 0)
-    assume(n_top > 0)
-    assume(n_top <= n_rows)
+    # Step 2: Compute dispersions using JIT function
+    dispersions = compute_dispersion(means, vars_)
     
-    out_dispersions = np.empty(n_rows, dtype=np.float64)
+    # Step 3: Select top k using JIT function
+    indices, mask = select_top_k(dispersions, n_top)
     
-    # Parallel dispersion computation
-    for row_idx in prange(n_rows):
-        values, _ = csr.row(row_idx)
-        n_nnz = len(values)
-        
-        row_sum = 0.0
-        row_sq_sum = 0.0
-        
-        for j in range(n_nnz):
-            val = values[j]
-            row_sum += val
-            row_sq_sum += val * val
-        
-        mu = row_sum / N
-        var = (row_sq_sum - row_sum * mu) / (N - 1.0) if N > 1.0 else 0.0
-        if var < 0.0:
-            var = 0.0
-        
-        if mu > EPSILON:
-            out_dispersions[row_idx] = var / mu
-        else:
-            out_dispersions[row_idx] = 0.0
-    
-    # Select top k using partial sort (sequential, but efficient)
-    out_indices = np.empty(n_top, dtype=np.int64)
-    out_mask = np.zeros(n_rows, dtype=np.uint8)
-    
-    idx_arr = np.arange(n_rows, dtype=np.int64)
-    
-    for i in range(n_top):
-        max_idx = i
-        max_val = out_dispersions[idx_arr[i]]
-        
-        for j in range(i + 1, n_rows):
-            if out_dispersions[idx_arr[j]] > max_val:
-                max_idx = j
-                max_val = out_dispersions[idx_arr[j]]
-        
-        if max_idx != i:
-            tmp = idx_arr[i]
-            idx_arr[i] = idx_arr[max_idx]
-            idx_arr[max_idx] = tmp
-        
-        out_indices[i] = idx_arr[i]
-        out_mask[idx_arr[i]] = 1
-    
-    return out_indices, out_mask, out_dispersions
+    return indices, mask, dispersions

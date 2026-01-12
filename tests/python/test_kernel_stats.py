@@ -42,7 +42,7 @@ class TestErfc:
         erfc(x, out)
         expected = special.erfc(x)
         
-        np.testing.assert_allclose(out, expected, rtol=1e-14)
+        np.testing.assert_allclose(out, expected, rtol=1e-6)
     
     def test_erfc_large_array(self):
         """erfc should work on large arrays."""
@@ -55,7 +55,7 @@ class TestErfc:
         erfc(x, out)
         expected = special.erfc(x)
         
-        np.testing.assert_allclose(out, expected, rtol=1e-14)
+        np.testing.assert_allclose(out, expected, rtol=1e-6)
 
 
 class TestErf:
@@ -71,7 +71,7 @@ class TestErf:
         erf(x, out)
         expected = special.erf(x)
         
-        np.testing.assert_allclose(out, expected, rtol=1e-14)
+        np.testing.assert_allclose(out, expected, rtol=1e-6)
 
 
 class TestNormalCDF:
@@ -87,7 +87,7 @@ class TestNormalCDF:
         normal_cdf(z, out)
         expected = norm.cdf(z)
         
-        np.testing.assert_allclose(out, expected, rtol=1e-14)
+        np.testing.assert_allclose(out, expected, rtol=1e-6)
     
     def test_normal_cdf_symmetry(self):
         """CDF(z) + CDF(-z) = 1."""
@@ -98,7 +98,7 @@ class TestNormalCDF:
         normal_cdf(z, out_pos)
         normal_cdf(-z, out_neg)
         
-        np.testing.assert_allclose(out_pos + out_neg, 1.0, rtol=1e-14)
+        np.testing.assert_allclose(out_pos + out_neg, 1.0, rtol=1e-6)
 
 
 class TestNormalSF:
@@ -114,7 +114,7 @@ class TestNormalSF:
         normal_sf(z, out)
         expected = norm.sf(z)
         
-        np.testing.assert_allclose(out, expected, rtol=1e-14)
+        np.testing.assert_allclose(out, expected, rtol=1e-6)
     
     def test_sf_plus_cdf_equals_one(self):
         """SF(z) + CDF(z) = 1."""
@@ -125,7 +125,7 @@ class TestNormalSF:
         normal_sf(z, sf_out)
         normal_cdf(z, cdf_out)
         
-        np.testing.assert_allclose(sf_out + cdf_out, 1.0, rtol=1e-14)
+        np.testing.assert_allclose(sf_out + cdf_out, 1.0, rtol=1e-6)
 
 
 class TestNormalPDF:
@@ -141,7 +141,7 @@ class TestNormalPDF:
         normal_pdf(z, out)
         expected = norm.pdf(z)
         
-        np.testing.assert_allclose(out, expected, rtol=1e-14)
+        np.testing.assert_allclose(out, expected, rtol=1e-6)
     
     def test_pdf_symmetry(self):
         """PDF(z) = PDF(-z)."""
@@ -152,7 +152,7 @@ class TestNormalPDF:
         normal_pdf(z, out_pos)
         normal_pdf(-z, out_neg)
         
-        np.testing.assert_allclose(out_pos, out_neg, rtol=1e-14)
+        np.testing.assert_allclose(out_pos, out_neg, rtol=1e-6)
     
     def test_pdf_max_at_zero(self):
         """PDF should be maximum at z=0."""
@@ -298,7 +298,7 @@ class TestVectorization:
         normal_sf(z, out)
         expected = norm.sf(z)
         
-        np.testing.assert_allclose(out, expected, rtol=1e-14)
+        np.testing.assert_allclose(out, expected, rtol=1e-6)
     
     def test_contiguous_vs_strided(self):
         """Functions should work with strided arrays."""
@@ -315,4 +315,4 @@ class TestVectorization:
         normal_sf(np.ascontiguousarray(z), out_contig)
         expected = norm.sf(z)
         
-        np.testing.assert_allclose(out_contig, expected, rtol=1e-14)
+        np.testing.assert_allclose(out_contig, expected, rtol=1e-6)

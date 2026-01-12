@@ -4,7 +4,7 @@ Vectorized implementation of Mann-Whitney U test p-value computation.
 Uses normal approximation with tie correction.
 
 Provides two versions:
-    - Precise: Uses scipy.special.erfc
+    - Precise: Uses math.erfc (Python standard library)
     - Approx: Uses Abramowitz-Stegun approximation (~1e-7 precision)
 
 Formula:
@@ -14,9 +14,9 @@ Formula:
     p = 2 * normal_sf(z)  # two-sided
 """
 
+import math
 import numpy as np
 from numba import prange
-from scipy import special
 
 from biosparse.optim import parallel_jit, assume
 
@@ -86,8 +86,8 @@ def mwu_p_value_two_sided(
         
         z = diff / sd
         
-        # normal_sf using scipy.special.erfc
-        sf = 0.5 * special.erfc(z * INV_SQRT2)
+        # normal_sf using scipy.math.erfc
+        sf = 0.5 * math.erfc(z * INV_SQRT2)
         out[i] = 2.0 * sf
 
 
@@ -142,7 +142,7 @@ def mwu_p_value_greater(
         z = (U[i] - mu - cc) / sd
         
         # normal_sf
-        out[i] = 0.5 * special.erfc(z * INV_SQRT2)
+        out[i] = 0.5 * math.erfc(z * INV_SQRT2)
 
 
 @parallel_jit
@@ -196,7 +196,7 @@ def mwu_p_value_less(
         z = (mu - U[i] - cc) / sd
         
         # normal_sf
-        out[i] = 0.5 * special.erfc(z * INV_SQRT2)
+        out[i] = 0.5 * math.erfc(z * INV_SQRT2)
 
 
 # =============================================================================
@@ -487,7 +487,7 @@ def mwu_p_value_two_sided_new(
         
         z = diff / sd
         
-        sf = 0.5 * special.erfc(z * INV_SQRT2)
+        sf = 0.5 * math.erfc(z * INV_SQRT2)
         out[i] = 2.0 * sf
     
     return out

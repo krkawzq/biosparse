@@ -1,24 +1,21 @@
 """Statistical Distribution Functions.
 
-Provides vectorized statistical functions with two implementations:
-    - Precise: Uses scipy.special (erfc, erf) - JIT compatible
-    - Approx: Abramowitz-Stegun polynomial approximation (~1e-7 precision)
+Provides vectorized statistical functions using Python's math.erfc/erf
+which are supported in Numba nopython mode.
 
 All functions accept numpy arrays and return numpy arrays.
 Uses optim module for loop hints and parallelization.
 """
 
+import math
 import numpy as np
 from numba import prange
-
-# scipy.special.erfc and erf are supported in Numba nopython mode
-from scipy import special
 
 # Use our own optimized JIT decorators
 from biosparse.optim import parallel_jit, assume, vectorize
 
 __all__ = [
-    # Precise (scipy-based)
+    # Precise (math library based, JIT compatible)
     'erfc',
     'erf',
     'normal_cdf',
@@ -27,7 +24,7 @@ __all__ = [
     'normal_logcdf',
     'normal_logsf',
     
-    # Approximate (faster)
+    # Approximate (same as precise, kept for API compatibility)
     'erfc_approx',
     'normal_sf_approx',
     'normal_cdf_approx',
@@ -35,31 +32,28 @@ __all__ = [
 
 
 # =============================================================================
-# Precise Implementations (scipy-based, JIT compatible)
+# Precise Implementations (math library based, JIT compatible)
 # =============================================================================
 
 @parallel_jit
 def erfc(x: np.ndarray, out: np.ndarray) -> None:
-    """Complementary error function (precise, scipy-based).
+    """Complementary error function.
     
     Args:
         x: Input array
         out: Output array (same shape as x)
-    
-    Note:
-        scipy.special.erfc is supported in Numba nopython mode.
     """
     n = len(x)
     assume(n > 0)
     assume(len(out) >= n)
     
     for i in prange(n):
-        out[i] = special.erfc(x[i])
+        out[i] = math.erfc(x[i])
 
 
 @parallel_jit
 def erf(x: np.ndarray, out: np.ndarray) -> None:
-    """Error function (precise, scipy-based).
+    """Error function.
     
     Args:
         x: Input array
@@ -70,7 +64,7 @@ def erf(x: np.ndarray, out: np.ndarray) -> None:
     assume(len(out) >= n)
     
     for i in prange(n):
-        out[i] = special.erf(x[i])
+        out[i] = math.erf(x[i])
 
 
 @parallel_jit
@@ -87,7 +81,7 @@ def normal_cdf(z: np.ndarray, out: np.ndarray) -> None:
     assume(len(out) >= n)
     
     for i in prange(n):
-        out[i] = 0.5 * special.erfc(-z[i] * INV_SQRT2)
+        out[i] = 0.5 * math.erfc(-z[i] * INV_SQRT2)
 
 
 @parallel_jit
@@ -104,7 +98,7 @@ def normal_sf(z: np.ndarray, out: np.ndarray) -> None:
     assume(len(out) >= n)
     
     for i in prange(n):
-        out[i] = 0.5 * special.erfc(z[i] * INV_SQRT2)
+        out[i] = 0.5 * math.erfc(z[i] * INV_SQRT2)
 
 
 @parallel_jit
@@ -147,7 +141,7 @@ def normal_logcdf(z: np.ndarray, out: np.ndarray) -> None:
             z2 = zi * zi
             out[i] = -0.5 * z2 - LOG_SQRT_2PI - np.log(-zi)
         else:
-            cdf = 0.5 * special.erfc(-zi * INV_SQRT2)
+            cdf = 0.5 * math.erfc(-zi * INV_SQRT2)
             out[i] = np.log(cdf)
 
 
@@ -174,7 +168,7 @@ def normal_logsf(z: np.ndarray, out: np.ndarray) -> None:
             z2 = zi * zi
             out[i] = -0.5 * z2 - LOG_SQRT_2PI - np.log(zi)
         else:
-            sf = 0.5 * special.erfc(zi * INV_SQRT2)
+            sf = 0.5 * math.erfc(zi * INV_SQRT2)
             out[i] = np.log(sf)
 
 
@@ -326,7 +320,7 @@ def erfc_new(x: np.ndarray) -> np.ndarray:
     out = np.empty(n, dtype=np.float64)
     
     for i in prange(n):
-        out[i] = special.erfc(x[i])
+        out[i] = math.erfc(x[i])
     
     return out
 
@@ -340,7 +334,7 @@ def normal_sf_new(z: np.ndarray) -> np.ndarray:
     out = np.empty(n, dtype=np.float64)
     
     for i in prange(n):
-        out[i] = 0.5 * special.erfc(z[i] * INV_SQRT2)
+        out[i] = 0.5 * math.erfc(z[i] * INV_SQRT2)
     
     return out
 

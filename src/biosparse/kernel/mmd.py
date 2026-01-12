@@ -74,9 +74,8 @@ def mmd_rbf(
     # Allocate output
     out_mmd = np.empty((n_rows, n_targets), dtype=np.float64)
     
-    # Parallel row processing
-    for row in prange(n_rows):
-        values, col_indices = csr.row(row)
+    row = 0
+    for values, col_indices in csr:
         nnz = len(values)
         
         # Partition values by group (thread-local buffers)
@@ -185,5 +184,7 @@ def mmd_rbf(
             mmd2 = sum_xx * inv_Nx2 + sum_yy * inv_Ny2 - 2.0 * sum_xy * inv_NxNy
             
             out_mmd[row, t] = mmd2 if mmd2 > 0.0 else 0.0
+        
+        row += 1
     
     return out_mmd

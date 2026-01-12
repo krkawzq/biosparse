@@ -105,25 +105,24 @@ class CSCModel(models.StructModel):
 class CSRIteratorModel(models.StructModel):
     """Memory layout for CSR iterator.
 
-    The iterator maintains pointers to the parent CSR's data and tracks
-    the current position via a pointer to allow mutation across iterations.
+    The iterator uses FFI to fetch row data on-demand, supporting both
+    Python-created objects (with pre-filled pointer arrays) and JIT-created
+    objects (with only handle).
 
     Fields:
-        values_ptrs: Reference to parent's values pointer array
-        indices_ptrs: Reference to parent's indices pointer array
-        row_lens: Reference to parent's row lengths array
+        handle: FFI handle to the Rust CSR object (for FFI calls)
         nrows: Total number of rows (from parent)
         index_ptr: Pointer to current iteration position (allows mutation)
+        dtype_is_f64: Whether dtype is float64 (else float32)
     """
 
     def __init__(self, dmm, fe_type):
         members = [
-            ('values_ptrs', types.CPointer(types.CPointer(fe_type.csr_type.dtype))),
-            ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
-            ('row_lens', types.CPointer(types.intp)),
+            ('handle', types.voidptr),
             ('nrows', types.int64),
             # Use a pointer so we can mutate the index across iterations
             ('index_ptr', types.CPointer(types.int64)),
+            ('dtype_is_f64', types.boolean),
         ]
         super().__init__(dmm, fe_type, members)
 
@@ -132,24 +131,22 @@ class CSRIteratorModel(models.StructModel):
 class CSCIteratorModel(models.StructModel):
     """Memory layout for CSC iterator.
 
-    Similar to CSRIteratorModel but for columns.
+    The iterator uses FFI to fetch column data on-demand.
 
     Fields:
-        values_ptrs: Reference to parent's values pointer array
-        indices_ptrs: Reference to parent's indices pointer array
-        col_lens: Reference to parent's column lengths array
+        handle: FFI handle to the Rust CSC object (for FFI calls)
         ncols: Total number of columns (from parent)
         index_ptr: Pointer to current iteration position (allows mutation)
+        dtype_is_f64: Whether dtype is float64 (else float32)
     """
 
     def __init__(self, dmm, fe_type):
         members = [
-            ('values_ptrs', types.CPointer(types.CPointer(fe_type.csc_type.dtype))),
-            ('indices_ptrs', types.CPointer(types.CPointer(types.int64))),
-            ('col_lens', types.CPointer(types.intp)),
+            ('handle', types.voidptr),
             ('ncols', types.int64),
             # Use a pointer so we can mutate the index across iterations
             ('index_ptr', types.CPointer(types.int64)),
+            ('dtype_is_f64', types.boolean),
         ]
         super().__init__(dmm, fe_type, members)
 
@@ -181,14 +178,12 @@ make_attribute_wrapper(CSCType, 'col_lens', 'col_lens')
 make_attribute_wrapper(CSCType, 'owns_data', 'owns_data')
 
 # Iterator attributes - internal use only
-make_attribute_wrapper(CSRIteratorType, 'values_ptrs', 'values_ptrs')
-make_attribute_wrapper(CSRIteratorType, 'indices_ptrs', 'indices_ptrs')
-make_attribute_wrapper(CSRIteratorType, 'row_lens', 'row_lens')
+make_attribute_wrapper(CSRIteratorType, 'handle', 'handle')
 make_attribute_wrapper(CSRIteratorType, 'nrows', 'nrows')
 make_attribute_wrapper(CSRIteratorType, 'index_ptr', 'index_ptr')
+make_attribute_wrapper(CSRIteratorType, 'dtype_is_f64', 'dtype_is_f64')
 
-make_attribute_wrapper(CSCIteratorType, 'values_ptrs', 'values_ptrs')
-make_attribute_wrapper(CSCIteratorType, 'indices_ptrs', 'indices_ptrs')
-make_attribute_wrapper(CSCIteratorType, 'col_lens', 'col_lens')
+make_attribute_wrapper(CSCIteratorType, 'handle', 'handle')
 make_attribute_wrapper(CSCIteratorType, 'ncols', 'ncols')
 make_attribute_wrapper(CSCIteratorType, 'index_ptr', 'index_ptr')
+make_attribute_wrapper(CSCIteratorType, 'dtype_is_f64', 'dtype_is_f64')

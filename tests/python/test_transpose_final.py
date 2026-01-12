@@ -6,10 +6,11 @@ import scipy.sparse as sp
 import sys
 import os
 
-# Add src/python to path
-_src_python = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
-if _src_python not in sys.path:
-    sys.path.insert(0, _src_python)
+# Add src to path so biosparse package can be imported
+# Note: conftest.py already sets this, but we keep it here for standalone execution
+_src = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
 from biosparse._binding._sparse import CSRF64, CSCF64, CSRF32, CSCF32
 
