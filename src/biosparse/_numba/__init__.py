@@ -39,6 +39,50 @@ Note:
     If numba is not available, importing this module will raise ImportError.
 """
 
+# =============================================================================
+# Register FFI symbols with LLVM JIT engine (non-Windows only)
+# On Linux/macOS, numba's LLVM JIT cannot automatically resolve symbols from
+# dynamically loaded CFFI libraries. We manually register them here.
+# On Windows, symbol resolution works differently and this is not needed.
+# =============================================================================
+import sys
+
+if sys.platform != 'win32':
+    def _register_ffi_symbols():
+        """Register all FFI function symbols with llvmlite's symbol table.
+        
+        Automatically discovers all function symbols from the CFFI lib module,
+        excluding constants (uppercase names) and private symbols.
+        """
+        try:
+            from llvmlite import binding as llvm
+            from .._binding._cffi import ffi, lib
+            
+            # Auto-discover all FFI functions from lib
+            # Filter out: private attrs (_), constants (UPPERCASE), and non-functions
+            all_symbols = dir(lib)
+            ffi_functions = [
+                name for name in all_symbols
+                if not name.startswith('_') and not name.isupper()
+            ]
+            
+            for func_name in ffi_functions:
+                try:
+                    # Get function pointer from CFFI lib
+                    func_ptr = ffi.addressof(lib, func_name)
+                    addr = int(ffi.cast("uintptr_t", func_ptr))
+                    # Register with LLVM
+                    llvm.add_symbol(func_name, addr)
+                except (TypeError, ffi.error):
+                    # Skip non-function symbols (e.g., struct types)
+                    pass
+                    
+        except Exception as e:
+            import warnings
+            warnings.warn(f"Failed to register FFI symbols with LLVM: {e}")
+
+    _register_ffi_symbols()
+
 # Import types first (registers typeof_impl)
 from ._types import (
     CSRType,

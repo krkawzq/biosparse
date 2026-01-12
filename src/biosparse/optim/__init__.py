@@ -54,6 +54,15 @@ Components:
 __version__ = '0.1.0'
 
 # =============================================================================
+# Register FFI symbols before any JIT compilation
+# =============================================================================
+
+try:
+    import biosparse._numba  # noqa: F401 - registers FFI symbols with LLVM
+except ImportError:
+    pass  # _numba module not available
+
+# =============================================================================
 # Logging
 # =============================================================================
 

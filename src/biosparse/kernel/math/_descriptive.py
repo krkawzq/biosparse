@@ -19,6 +19,7 @@ Optimization Philosophy:
 """
 
 import math
+import sys
 import numpy as np
 from numba import njit, prange
 
@@ -26,6 +27,16 @@ from biosparse.optim import (
     parallel_jit, fast_jit, assume, vectorize, 
     interleave, unroll, likely, unlikely
 )
+
+# =============================================================================
+# Platform-specific cache settings
+# =============================================================================
+# WORKAROUND: Numba cache has a bug on Linux where loading cached functions
+# that involve recursive call chains causes segmentation faults.
+# See: https://github.com/numba/numba/issues/XXXX (to be reported)
+# This affects functions like argsort_full -> _qsort_idx (recursive).
+# On Windows, the linker resolves these dependencies correctly.
+_CACHE_RECURSIVE = sys.platform == 'win32'
 
 __all__ = [
     'median', 'mad', 'quantile', 'percentile', 'quantiles_batch',
@@ -38,9 +49,11 @@ __all__ = [
 
 # =============================================================================
 # Sorting Utilities - Inline helpers
+# Note: These functions use _CACHE_RECURSIVE because they are part of
+# recursive call chains (argsort_full -> _qsort_idx -> recursive calls).
 # =============================================================================
 
-@fast_jit(cache=True, inline='always')
+@fast_jit(cache=_CACHE_RECURSIVE, inline='always')
 def _swap(indices: np.ndarray, i: int, j: int) -> None:
     """Swap two elements. Inlined to zero overhead."""
     t = indices[i]
@@ -48,7 +61,7 @@ def _swap(indices: np.ndarray, i: int, j: int) -> None:
     indices[j] = t
 
 
-@fast_jit(cache=True, inline='always')
+@fast_jit(cache=_CACHE_RECURSIVE, inline='always')
 def _insertion_sort_idx(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int) -> None:
     """Insertion sort for small subarrays (< 16 elements)."""
     for i in range(lo + 1, hi + 1):
@@ -58,7 +71,7 @@ def _insertion_sort_idx(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int) -> N
             j -= 1
 
 
-@fast_jit(cache=True, inline='always')
+@fast_jit(cache=_CACHE_RECURSIVE, inline='always')
 def _median3(arr: np.ndarray, idx: np.ndarray, lo: int, mid: int, hi: int) -> None:
     """Median-of-three pivot selection. Sorts lo, mid, hi."""
     if arr[idx[lo]] > arr[idx[mid]]:
@@ -69,7 +82,7 @@ def _median3(arr: np.ndarray, idx: np.ndarray, lo: int, mid: int, hi: int) -> No
         _swap(idx, mid, hi)
 
 
-@fast_jit(cache=True)
+@fast_jit(cache=_CACHE_RECURSIVE)
 def _qsort_idx(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int) -> None:
     """Quicksort indices. Median-of-3 pivot, insertion sort for small."""
     # Inline constant for threshold
@@ -110,7 +123,7 @@ def _qsort_idx(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int) -> None:
         _qsort_idx(arr, idx, lo, i - 1)
 
 
-@fast_jit(cache=True, inline='always')
+@fast_jit(cache=_CACHE_RECURSIVE, inline='always')
 def argsort_full(arr: np.ndarray) -> np.ndarray:
     """Argsort using optimized quicksort."""
     # === INLINE CONSTANTS ===
@@ -132,7 +145,7 @@ def argsort_full(arr: np.ndarray) -> np.ndarray:
     return idx
 
 
-@fast_jit(cache=True, inline='always')
+@fast_jit(cache=_CACHE_RECURSIVE, inline='always')
 def _partition(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int) -> int:
     """Partition for quickselect."""
     mid = (lo + hi) >> 1
@@ -151,7 +164,7 @@ def _partition(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int) -> int:
     return store
 
 
-@fast_jit(cache=True, inline='always')
+@fast_jit(cache=_CACHE_RECURSIVE, inline='always')
 def _qselect(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int, k: int) -> None:
     """Quickselect: partition around k-th smallest."""
     while lo < hi:
@@ -164,7 +177,7 @@ def _qselect(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int, k: int) -> None
             hi = p - 1
 
 
-@fast_jit(cache=True, inline='always')
+@fast_jit(cache=_CACHE_RECURSIVE, inline='always')
 def argpartition(arr: np.ndarray, k: int) -> np.ndarray:
     """Partial argsort: first k are k smallest (unordered)."""
     n = len(arr)
