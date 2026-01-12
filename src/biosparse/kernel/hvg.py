@@ -911,31 +911,36 @@ def _col_sums_chunked(csr: CSR) -> np.ndarray:
     assume(n_rows > 0)
     assume(n_cols > 0)
     
+    # Compute actual number of chunks needed
     chunk_size = (n_rows + N_CHUNKS - 1) // N_CHUNKS
+    actual_chunks = (n_rows + chunk_size - 1) // chunk_size
+    if actual_chunks > N_CHUNKS:
+        actual_chunks = N_CHUNKS
     
     # Each chunk has its own local buffer
-    local_sums = np.zeros((N_CHUNKS, n_cols), dtype=np.float64)
+    local_sums = np.zeros((actual_chunks, n_cols), dtype=np.float64)
     
     # Parallel accumulation per chunk
-    for chunk in prange(N_CHUNKS):
+    for chunk in prange(actual_chunks):
         start = chunk * chunk_size
         end = start + chunk_size
         if end > n_rows:
             end = n_rows
         
-        for row in range(start, end):
-            values, cols = csr.row_to_numpy(row)
-            nnz = len(values)
-            for j in range(nnz):
-                local_sums[chunk, cols[j]] += float(values[j])
+        # Skip empty chunks
+        if start < n_rows:
+            for row in range(start, end):
+                values, cols = csr.row_to_numpy(row)
+                nnz = len(values)
+                for j in range(nnz):
+                    local_sums[chunk, cols[j]] += float(values[j])
     
     # Merge all chunks (sequential but small)
     sums = np.zeros(n_cols, dtype=np.float64)
     
     for col in range(n_cols):
         s = ZERO
-        unroll(8)
-        for chunk in range(N_CHUNKS):
+        for chunk in range(actual_chunks):
             s += local_sums[chunk, col]
         sums[col] = s
     

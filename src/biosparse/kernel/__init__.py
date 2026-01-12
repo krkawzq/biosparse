@@ -27,12 +27,12 @@ Quick Start:
 All sparse matrix kernels accept the project's CSR type directly.
 """
 
-# Submodules
+# Submodules (expose as submodules for `from biosparse.kernel import mmd, ttest, ...`)
 from . import math
-from . import hvg as _hvg
-from . import mwu as _mwu
-from . import mmd as _mmd
-from . import ttest as _ttest
+from . import hvg
+from . import mwu
+from . import mmd
+from . import ttest
 
 # =============================================================================
 # Statistical Tests (with elegant aliases)
@@ -43,14 +43,14 @@ from .mwu import mwu_test, mwu_test_csr_arrays
 mann_whitney_u = mwu_test  # Elegant alias
 
 # T-tests
-from .ttest import ttest, welch_ttest, student_ttest
-t_test = ttest            # Elegant alias
+from .ttest import ttest as ttest_func, welch_ttest, student_ttest
+t_test = ttest_func       # Elegant alias
 t_test_welch = welch_ttest
 t_test_student = student_ttest
 
 # Maximum Mean Discrepancy
 from .mmd import mmd_rbf
-mmd = mmd_rbf             # Elegant alias
+mmd_distance = mmd_rbf    # Elegant alias (don't shadow the module)
 
 # =============================================================================
 # HVG Selection (All Flavors)
@@ -85,8 +85,12 @@ moments = compute_moments
 # =============================================================================
 
 __all__ = [
-    # Submodules (for advanced usage)
+    # Submodules (for advanced usage: kernel.mmd.mmd_rbf, etc.)
     'math',
+    'hvg',
+    'mwu',
+    'mmd',
+    'ttest',
     
     # --- Statistical Tests (Primary API) ---
     # Mann-Whitney U
@@ -98,12 +102,12 @@ __all__ = [
     't_test',               # Elegant name (default: Welch)
     't_test_welch',
     't_test_student',
-    'ttest',                # Original name
+    'ttest_func',           # Original function (renamed to avoid shadowing module)
     'welch_ttest',
     'student_ttest',
     
     # MMD
-    'mmd',                  # Elegant name
+    'mmd_distance',         # Elegant name (renamed to avoid shadowing module)
     'mmd_rbf',              # Original name
     
     # --- HVG Selection (Primary API) ---

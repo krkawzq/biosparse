@@ -204,12 +204,12 @@ class TestHVGSeurat:
             csr, n_top_genes=50, n_bins=20
         )
         
-        # Get valid dispersions (not -inf)
-        valid_mask = dispersions_norm > -np.inf
+        # Get valid dispersions (finite values only, exclude both -inf and +inf)
+        valid_mask = np.isfinite(dispersions_norm)
         if np.any(valid_mask):
             # Selected genes should have high dispersion among valid ones
             selected_disps = dispersions_norm[mask.astype(bool)]
-            valid_selected = selected_disps[selected_disps > -np.inf]
+            valid_selected = selected_disps[np.isfinite(selected_disps)]
             
             if len(valid_selected) > 0:
                 # At least some selected genes should be above median

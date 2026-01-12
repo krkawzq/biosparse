@@ -212,7 +212,6 @@ def mmd_rbf(
     assume(n_rows > 0)
     assume(n_cols > 0)
     assume(n_targets > 0)
-    assume(n_targets <= 256)
     assume(gamma > 0.0)
     
     # Count elements in each group (sequential, small)

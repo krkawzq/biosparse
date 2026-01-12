@@ -25,6 +25,7 @@ from biosparse.optim import (
     parallel_jit, assume, vectorize, interleave, 
     unroll, likely, unlikely
 )
+from biosparse.kernel.math._tdist import t_test_pvalue
 
 __all__ = [
     'welch_test',
@@ -183,7 +184,7 @@ def welch_test(
     """Welch's t-test (two-sided p-value, precise).
     
     Welch's t-test does not assume equal variances.
-    Uses normal approximation for df > 30, sigmoid heuristic for small df.
+    Uses exact t-distribution CDF via incomplete beta function.
     
     Args:
         mean1: Means of group 1
@@ -194,7 +195,6 @@ def welch_test(
         n2: Sample sizes of group 2
         out: Output p-values
     """
-    INV_SQRT2 = 0.7071067811865475
     SE_MIN = 1e-15
     
     n = len(mean1)
@@ -206,8 +206,6 @@ def welch_test(
     assume(len(n2) >= n)
     assume(len(out) >= n)
     
-    vectorize(8)
-    interleave(4)
     for i in prange(n):
         # Standard error
         v1_n1 = var1[i] / n1[i]
@@ -245,18 +243,8 @@ def welch_test(
         
         df = (sum_v * sum_v) / denom
         
-        # P-value computation
-        abs_t = abs(t_stat)
-        
-        if likely(df > 30.0):
-            # Normal approximation (common case for biological data)
-            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
-            out[i] = 2.0 * sf
-        else:
-            # Sigmoid heuristic for small DF
-            z = abs_t / math.sqrt(df + abs_t * abs_t)
-            cdf = 0.5 * (1.0 + z)
-            out[i] = 2.0 * (1.0 - cdf)
+        # P-value computation using exact t-distribution
+        out[i] = t_test_pvalue(t_stat, df, 0)
 
 
 @parallel_jit(cache=True, inline='always')
@@ -272,6 +260,7 @@ def student_test(
     """Student's t-test (two-sided p-value, precise).
     
     Student's t-test assumes equal variances (uses pooled variance).
+    Uses exact t-distribution CDF via incomplete beta function.
     
     Args:
         mean1: Means of group 1
@@ -282,7 +271,6 @@ def student_test(
         n2: Sample sizes of group 2
         out: Output p-values
     """
-    INV_SQRT2 = 0.7071067811865475
     SE_MIN = 1e-15
     
     n = len(mean1)
@@ -294,8 +282,6 @@ def student_test(
     assume(len(n2) >= n)
     assume(len(out) >= n)
     
-    vectorize(8)
-    interleave(4)
     for i in prange(n):
         # Degrees of freedom
         df = n1[i] + n2[i] - 2.0
@@ -317,18 +303,8 @@ def student_test(
         # T-statistic
         t_stat = (mean1[i] - mean2[i]) / se
         
-        # P-value computation
-        abs_t = abs(t_stat)
-        
-        if likely(df > 30.0):
-            # Normal approximation
-            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
-            out[i] = 2.0 * sf
-        else:
-            # Sigmoid heuristic for small DF
-            z = abs_t / math.sqrt(df + abs_t * abs_t)
-            cdf = 0.5 * (1.0 + z)
-            out[i] = 2.0 * (1.0 - cdf)
+        # P-value computation using exact t-distribution
+        out[i] = t_test_pvalue(t_stat, df, 0)
 
 
 # =============================================================================
@@ -535,15 +511,12 @@ def welch_test_new(
     n2: np.ndarray
 ) -> np.ndarray:
     """Allocating version of welch_test."""
-    INV_SQRT2 = 0.7071067811865475
     SE_MIN = 1e-15
     
     n = len(mean1)
     assume(n > 0)
     out = np.empty(n, dtype=np.float64)
     
-    vectorize(8)
-    interleave(4)
     for i in prange(n):
         # Standard error
         v1_n1 = var1[i] / n1[i]
@@ -576,16 +549,8 @@ def welch_test_new(
         
         df = (sum_v * sum_v) / denom
         
-        # P-value
-        abs_t = abs(t_stat)
-        
-        if likely(df > 30.0):
-            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
-            out[i] = 2.0 * sf
-        else:
-            z = abs_t / math.sqrt(df + abs_t * abs_t)
-            cdf = 0.5 * (1.0 + z)
-            out[i] = 2.0 * (1.0 - cdf)
+        # P-value using exact t-distribution
+        out[i] = t_test_pvalue(t_stat, df, 0)
     
     return out
 
@@ -600,15 +565,12 @@ def student_test_new(
     n2: np.ndarray
 ) -> np.ndarray:
     """Allocating version of student_test."""
-    INV_SQRT2 = 0.7071067811865475
     SE_MIN = 1e-15
     
     n = len(mean1)
     assume(n > 0)
     out = np.empty(n, dtype=np.float64)
     
-    vectorize(8)
-    interleave(4)
     for i in prange(n):
         df = n1[i] + n2[i] - 2.0
         
@@ -626,14 +588,7 @@ def student_test_new(
         se = math.sqrt(se_sq)
         t_stat = (mean1[i] - mean2[i]) / se
         
-        abs_t = abs(t_stat)
-        
-        if likely(df > 30.0):
-            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
-            out[i] = 2.0 * sf
-        else:
-            z = abs_t / math.sqrt(df + abs_t * abs_t)
-            cdf = 0.5 * (1.0 + z)
-            out[i] = 2.0 * (1.0 - cdf)
+        # P-value using exact t-distribution
+        out[i] = t_test_pvalue(t_stat, df, 0)
     
     return out

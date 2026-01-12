@@ -39,7 +39,7 @@ from biosparse._binding import CSR
 
 import biosparse._numba  # noqa: F401
 
-__all__ = ['mwu_test', 'mwu_test_csr_arrays']
+__all__ = ['mwu_test', 'mwu_test_csr_arrays', 'count_groups']
 
 
 # =============================================================================
@@ -328,9 +328,7 @@ def _mwu_core(
     half_n1_n1p1 = 0.5 * n_ref_f * (n_ref_f + 1.0)
     
     assume(n_rows > 0)
-    assume(n_rows <= 100000000)
     assume(n_targets > 0)
-    assume(n_targets <= 256)
     assume(n_ref > 0)
     
     vectorize(4)
@@ -350,7 +348,6 @@ def _mwu_core(
         n_tar_nz = np.empty(n_targets, dtype=np.int64)
         sum_tar = np.empty(n_targets, dtype=np.float64)
         assume(n_targets > 0)
-        assume(n_targets <= 256)
         vectorize(4)
         unroll(4)
         for t in range(n_targets):
@@ -526,9 +523,7 @@ def _count_groups(group_ids: np.ndarray, n_groups: int) -> np.ndarray:
     counts = np.zeros(n_groups, dtype=np.int64)
     
     assume(n > 0)
-    assume(n <= 100000000)  # 100M cells max
     assume(n_groups > 0)
-    assume(n_groups <= 1024)
     
     # Sequential scan (cannot vectorize due to counts[g] dependency)
     for i in range(n):
@@ -538,6 +533,10 @@ def _count_groups(group_ids: np.ndarray, n_groups: int) -> np.ndarray:
                 counts[g] += 1
     
     return counts
+
+
+# Public alias
+count_groups = _count_groups
 
 
 # =============================================================================
@@ -578,8 +577,8 @@ def mwu_test(
     """
     n_rows = csr.nrows
     
-    # Ensure contiguous int64
-    group_ids = np.ascontiguousarray(group_ids, dtype=np.int64)
+    # Ensure contiguous (keep original dtype)
+    group_ids = np.ascontiguousarray(group_ids)
     
     # Count groups
     n_groups = n_targets + 1

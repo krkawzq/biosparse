@@ -52,15 +52,13 @@ def _compute_ttest_pvalues_batch(
     """Batch compute two-sided p-values from t-statistics.
     
     Separating p-value computation allows better vectorization.
-    Uses exact t-distribution for df <= 30, normal approximation otherwise.
+    Uses exact t-distribution for all df values to match scipy.
     
     Args:
         t_stats: T-statistics array (flattened)
         dfs: Degrees of freedom array
         out_p: Output p-values array
     """
-    INV_SQRT2 = 0.7071067811865475
-    
     n = len(t_stats)
     assume(n > 0)
     assume(len(dfs) >= n)
@@ -75,15 +73,8 @@ def _compute_ttest_pvalues_batch(
             out_p[i] = 1.0
             continue
         
-        abs_t = abs(t_stats[i])
-        
-        if likely(df > 30.0):
-            # Normal approximation (most common case for biological data)
-            sf = 0.5 * math.erfc(abs_t * INV_SQRT2)
-            out_p[i] = 2.0 * sf
-        else:
-            # Exact t-distribution for small df
-            out_p[i] = t_test_pvalue(t_stats[i], df, 0)
+        # Always use exact t-distribution to match scipy
+        out_p[i] = t_test_pvalue(t_stats[i], df, 0)
 
 
 # =============================================================================
@@ -172,7 +163,6 @@ def ttest(
     assume(n_rows > 0)
     assume(n_cols > 0)
     assume(n_targets > 0)
-    assume(n_targets <= 256)  # Reasonable upper bound
     
     # Count elements in each group (sequential, small)
     n_groups = n_targets + 1
