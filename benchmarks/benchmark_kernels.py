@@ -354,14 +354,25 @@ def run_scaling_benchmark(kernel: str, quick: bool = False):
     print(f"SCALING BENCHMARK: {kernel.upper()}")
     print(f"{'='*80}")
     
+    # Each config is (n_genes, n_cells, n_groups, density)
     if quick:
-        sizes = [(1000, 500), (2000, 1000)]
-        densities = [0.05]
-        groups = [3]
+        configs = [
+            (10000, 5000, 2, 0.2),
+            (10000, 5000, 3, 0.2),
+            (20000, 5000, 2, 0.2),
+            (20000, 5000, 3, 0.2),
+        ]
     else:
-        sizes = [(2000, 1000), (5000, 2000), (10000, 5000)]
-        densities = [0.01, 0.05, 0.15]
-        groups = [2, 5, 10]
+        configs = [
+            (15000, 2000, 3, 0.2),
+            (25000, 5000, 5, 0.2),
+            (25000, 10000, 5, 0.2),
+            (25000, 15000, 5, 0.2),
+            (50000, 10000, 5, 0.2),
+            (50000, 20000, 5, 0.2),
+            (100000, 50000, 10, 0.2),
+            (200000, 80000, 20, 0.2),
+        ]
     
     results = []
     
@@ -371,32 +382,28 @@ def run_scaling_benchmark(kernel: str, quick: bool = False):
         print(f"{'Groups':<8} {'Genes':<8} {'Cells':<8} {'Density':<10} {'scipy':<12} {'biosparse':<12} {'Speedup':<10}")
         print("-" * 80)
         
-        for n_genes, n_cells in sizes:
-            for density in densities:
-                for n_groups in groups:
-                    result = TTestBenchmark.run(n_genes, n_cells, n_groups, density)
-                    results.append(result)
-                    
-                    print(f"{n_groups:<8} {n_genes:<8} {n_cells:<8} {density:<10.1%} "
-                          f"{format_time(result['scipy_time']):<12} "
-                          f"{format_time(result['biosparse_time']):<12} "
-                          f"{result['speedup']:<10.2f}x")
+        for n_genes, n_cells, n_groups, density in configs:
+            result = TTestBenchmark.run(n_genes, n_cells, n_groups, density)
+            results.append(result)
+            
+            print(f"{n_groups:<8} {n_genes:<8} {n_cells:<8} {density:<10.1%} "
+                  f"{format_time(result['scipy_time']):<12} "
+                  f"{format_time(result['biosparse_time']):<12} "
+                  f"{result['speedup']:<10.2f}x")
     
     elif kernel == "mwu":
         print("\n--- MWU Scaling ---")
         print(f"{'Groups':<8} {'Genes':<8} {'Cells':<8} {'Density':<10} {'scipy*':<12} {'biosparse':<12} {'Speedup':<10}")
         print("-" * 80)
         
-        for n_genes, n_cells in sizes:
-            for density in densities:
-                for n_groups in groups:
-                    result = MWUBenchmark.run(n_genes, n_cells, n_groups, density)
-                    results.append(result)
-                    
-                    print(f"{n_groups:<8} {n_genes:<8} {n_cells:<8} {density:<10.1%} "
-                          f"{format_time(result['scipy_time']):<12} "
-                          f"{format_time(result['biosparse_time']):<12} "
-                          f"{result['speedup']:<10.2f}x")
+        for n_genes, n_cells, n_groups, density in configs:
+            result = MWUBenchmark.run(n_genes, n_cells, n_groups, density)
+            results.append(result)
+            
+            print(f"{n_groups:<8} {n_genes:<8} {n_cells:<8} {density:<10.1%} "
+                  f"{format_time(result['scipy_time']):<12} "
+                  f"{format_time(result['biosparse_time']):<12} "
+                  f"{result['speedup']:<10.2f}x")
         
         print("\n* scipy time is extrapolated from 100-gene sample")
     
@@ -405,16 +412,16 @@ def run_scaling_benchmark(kernel: str, quick: bool = False):
         print(f"{'Genes':<10} {'Cells':<10} {'Density':<10} {'scipy':<12} {'biosparse':<12} {'Speedup':<10} {'Correct':<8}")
         print("-" * 80)
         
-        for n_genes, n_cells in sizes:
-            for density in densities:
-                result = HVGBenchmark.run(n_genes, n_cells, density)
-                results.append(result)
-                
-                print(f"{n_genes:<10} {n_cells:<10} {density:<10.1%} "
-                      f"{format_time(result['scipy_time']):<12} "
-                      f"{format_time(result['biosparse_time']):<12} "
-                      f"{result['speedup']:<10.2f}x "
-                      f"{'✓' if result.get('correct', False) else '✗':<8}")
+        for n_genes, n_cells, n_groups, density in configs:
+            # HVG doesn't use n_groups, but we keep the unified config format
+            result = HVGBenchmark.run(n_genes, n_cells, density)
+            results.append(result)
+            
+            print(f"{n_genes:<10} {n_cells:<10} {density:<10.1%} "
+                  f"{format_time(result['scipy_time']):<12} "
+                  f"{format_time(result['biosparse_time']):<12} "
+                  f"{result['speedup']:<10.2f}x "
+                  f"{'✓' if result.get('correct', False) else '✗':<8}")
     
     return results
 

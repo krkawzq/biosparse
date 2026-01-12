@@ -6,9 +6,9 @@ Compares performance of:
 2. Statistical kernels (t-test, MWU, HVG)
 
 Scenarios:
-- Dense: 10-20% non-zero elements (typical dense single-cell data)
-- Sparse: 1-5% non-zero elements (typical sparse single-cell data)
-- Ultra-sparse: <1% non-zero elements (highly filtered data)
+- Dense: 50% non-zero elements (typical dense single-cell data)
+- Sparse: 20% non-zero elements (typical sparse single-cell data)
+- Very Sparse: 10% non-zero elements (highly filtered data)
 
 Usage:
     python benchmarks/benchmark_sparse_vs_scipy.py
@@ -722,7 +722,7 @@ def main():
     if args.quick:
         # Quick mode for testing
         scenarios = [
-            {"name": "Sparse (5%)", "density": 0.05},
+            {"name": "Sparse (20%)", "density": 0.2},
         ]
         n_rows, n_cols = 1000, 500
         n_genes, n_cells = 500, 300
@@ -731,9 +731,9 @@ def main():
     else:
         # Full benchmark
         scenarios = [
-            {"name": "Dense (15%)", "density": 0.15},
-            {"name": "Sparse (5%)", "density": 0.05},
-            {"name": "Very Sparse (1%)", "density": 0.01},
+            {"name": "Dense (50%)", "density": 0.5},
+            {"name": "Sparse (20%)", "density": 0.2},
+            {"name": "Very Sparse (10%)", "density": 0.1},
         ]
         n_rows, n_cols = 10000, 5000
         n_genes, n_cells = 5000, 2000

@@ -767,30 +767,31 @@ def run_benchmark(n_genes: int, n_cells: int, density: float, n_top_genes: int =
 
 def run_scaling_benchmark(quick: bool = False, large: bool = False, flavor: str = None):
     """Run scaling benchmarks across different sizes."""
-    
+
     warmup_jit()
-    
+
     if quick:
         configs = [
-            (1000, 500, 0.10, 200),   # (n_genes, n_cells, density, n_top)
-            (2000, 1000, 0.05, 500),
+            (10000, 5000, 0.2, 2000),   # (n_genes, n_cells, density, n_top)
+            (20000, 5000, 0.2, 3000),
         ]
         n_runs = 3
     elif large:
         configs = [
-            (5000, 2000, 0.05, 1000),
-            (10000, 5000, 0.05, 2000),
-            (15000, 10000, 0.10, 2000),
-            (20000, 15000, 0.10, 3000),
+            (15000, 2000, 0.2, 1000),
+            (25000, 5000, 0.2, 2000),
+            (25000, 10000, 0.2, 2000),
+            (25000, 15000, 0.2, 2000),
         ]
         n_runs = 3
     else:
         configs = [
-            (2000, 1000, 0.05, 500),
-            (5000, 2000, 0.05, 1000),
-            (10000, 5000, 0.10, 2000),
+            (50000, 10000, 0.2, 5000),
+            (50000, 20000, 0.2, 5000),
+            (100000, 50000, 0.2, 5000),
+            (200000, 80000, 0.2, 5000),
         ]
-        n_runs = 5
+        n_runs = 3
     
     print("\n" + "="*100)
     print("SCALING BENCHMARK: biosparse HVG vs Scanpy HVG")
