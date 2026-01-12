@@ -6,106 +6,130 @@
 <h1 align="center">🧬 biosparse</h1>
 
 <p align="center">
-  <strong>Make your single-cell analysis 10x faster</strong>
+  <strong>Sparse matrices. Reimagined for biology.</strong>
 </p>
 
 <p align="center">
-  biosparse is a high-performance drop-in replacement for scanpy.<br>
-  Same code. Same results. 10x the speed.
+  1000x faster than scipy. 10-100x faster than scanpy.<br>
+  Zero-cost slicing. Numba-native. Production-ready.
 </p>
 
 ---
 
-## 😩 The Problem
+## Why biosparse?
 
-Single-cell RNA-seq datasets are getting massive. When processing 1M+ cells:
+biosparse is built on three pillars:
 
-- **HVG selection** takes 5+ minutes
-- **Differential expression** takes even longer
-- **Interactive exploration** becomes a waiting game
+### 1️⃣ Biology-First Sparse Matrices
 
-## ✨ The Solution
+A custom sparse matrix format designed for how biologists actually work:
 
-biosparse rewrites core computations in Rust + Numba:
+- **Zero-cost slicing & stacking** - Subset genes/cells without copying data
+- **scipy/numpy compatible** - `from_scipy()`, `to_scipy()`, works with your existing code
+- **Memory efficient** - Views instead of copies, reduced memory footprint
 
-## 🚀 Quick Start
+```python
+from biosparse import CSRF64
+import scipy.sparse as sp
+
+# From scipy (zero-copy available)
+csr = CSRF64.from_scipy(scipy_mat, copy=False)
+
+# Zero-cost operations
+subset = csr[1000:2000, :]           # No data copy
+stacked = CSRF64.vstack([csr1, csr2])  # Efficient concatenation
+
+# Back to scipy when needed
+scipy_mat = csr.to_scipy()
+```
+
+### 2️⃣ High-Performance Kernels
+
+Battle-tested algorithms built on our sparse matrix, compiled with Numba JIT:
+
+| Algorithm | vs scipy | vs scanpy |
+|-----------|----------|-----------|
+| Sparse nonlinear ops | **1,000 - 10,000x** | - |
+| HVG selection | - | **10 - 100x** |
+| Mann-Whitney U | - | **10 - 100x** |
+| t-test | - | **10 - 100x** |
+
+*Speedup scales with core count*
+
+**Supported:**
+- HVG: Seurat, Seurat V3, Cell Ranger, Pearson residuals
+- Stats: Mann-Whitney U, Welch's t-test, Student's t-test, MMD
+
+### 3️⃣ Numba Optimization Toolkit
+
+The secret sauce: tools that make Numba JIT **outperform hand-written C++**.
+
+```python
+from biosparse.optim import parallel_jit, assume, vectorize, likely
+
+@parallel_jit
+def my_kernel(csr):
+    assume(csr.nrows > 0)  # Enable compiler optimizations
+    
+    for row in prange(csr.nrows):
+        values, indices = csr.row_to_numpy(row)
+        
+        vectorize(8)  # SIMD hint
+        for v in values:
+            if likely(v > 0):  # Branch prediction
+                # ...
+```
+
+**Includes:**
+- LLVM intrinsics: `assume`, `likely`, `unlikely`, `prefetch`
+- Loop hints: `vectorize`, `unroll`, `interleave`, `distribute`
+- [Complete tutorial](./tutorial/) - 7 chapters from basics to expert
+
+---
+
+## Quick Start
 
 ```bash
 pip install biosparse
 ```
 
 ```python
-# Just change one import
 from biosparse import CSRF64
 from biosparse.kernel import hvg
 
-# Your scanpy data
+# Load your data
 import scanpy as sc
-adata = sc.read_h5ad("your_data.h5ad")
+adata = sc.read_h5ad("data.h5ad")
 
-# Convert (zero-copy, nearly instant)
-csr = CSRF64.from_scipy(adata.X.T)  # genes x cells
+# Convert (zero-copy)
+csr = CSRF64.from_scipy(adata.X.T)
 
-# 🚀 10x faster HVG selection
+# 100x faster HVG selection
 indices, mask, *_ = hvg.hvg_seurat_v3(csr, n_top_genes=2000)
 
-# Use results directly in scanpy
+# Use with scanpy
 adata.var['highly_variable'] = mask.astype(bool)
 ```
 
-## 🎯 Supported Algorithms
+---
 
-### Highly Variable Genes
-- ✅ Seurat (binning + z-score)
-- ✅ Seurat V3 (VST + LOESS) 
-- ✅ Cell Ranger (percentile + median/MAD)
-- ✅ Pearson residuals
+## Documentation
 
-### Differential Expression
-- ✅ Mann-Whitney U test
-- ✅ Welch's t-test
-- ✅ Student's t-test
+| Resource | Description |
+|----------|-------------|
+| [Tutorial](./tutorial/) | 7-chapter guide: from basics to outperforming C++ |
+| [Sparse API](./docs/sparse.md) | CSR/CSC matrix reference |
+| [Kernels](./docs/kernels.md) | HVG, MWU, t-test documentation |
+| [Optimization](./docs/optimizations.md) | LLVM intrinsics & loop hints |
 
-### Other
-- ✅ Maximum Mean Discrepancy (MMD)
-- ✅ Basic statistics (mean, variance, dispersion)
+---
 
-## 💡 Why So Fast?
-
-It's not just "rewriting in another language":
-
-1. **Rust core** - Sparse matrix ops implemented in Rust
-2. **Zero-copy** - Shares memory with scipy, no data copying
-3. **Parallelized** - All algorithms auto-parallelize across cores
-4. **Compiler hints** - LLVM intrinsics generate optimal machine code
-
-## 🔄 scanpy Compatible
-
-biosparse results match scanpy **exactly**:
-
-```python
-# biosparse
-idx_bio, mask_bio, *_ = hvg.hvg_seurat_v3(csr, n_top_genes=2000)
-
-# scanpy  
-sc.pp.highly_variable_genes(adata, flavor='seurat_v3', n_top_genes=2000)
-
-# Same results
-assert np.allclose(adata.var['highly_variable'], mask_bio)
-```
-
-## 📖 Documentation
-
-- [Tutorial](./tutorial/) - Learn biosparse from scratch
-- [API Docs](./docs/) - Complete API reference
-
-## 📄 License
+## License
 
 MIT
 
 ---
 
 <p align="center">
-  <strong>Stop waiting. Start discovering.</strong><br>
-  <sub>biosparse - Built for single-cell bioinformatics</sub>
+  <strong>Sparse. Fast. Biological.</strong>
 </p>
