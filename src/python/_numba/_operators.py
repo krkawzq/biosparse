@@ -33,6 +33,12 @@ from ._ffi import (
     ffi_csc_f32_vstack,
 )
 
+# Import optimization intrinsics
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from optim import assume, unlikely
+
 
 # =============================================================================
 # Helper: Create CSR/CSC from handle in JIT
@@ -333,10 +339,17 @@ def csr_getitem_overload(csr, key):
 
                         # Get row data
                         values, indices = csr.row_to_numpy(row_idx)
+                        row_len = len(indices)
+
+                        # Assume valid row data
+                        assume(row_len >= 0)
+                        assume(len(values) == row_len)
 
                         # Binary search for the column
                         pos = np.searchsorted(indices, col_idx)
-                        if pos < len(indices) and indices[pos] == col_idx:
+
+                        # Sparse position is more common than dense
+                        if unlikely(pos < row_len and indices[pos] == col_idx):
                             return values[pos]
                         else:
                             return 0.0
@@ -351,8 +364,14 @@ def csr_getitem_overload(csr, key):
                             raise IndexError("column index out of bounds")
 
                         values, indices = csr.row_to_numpy(row_idx)
+                        row_len = len(indices)
+
+                        assume(row_len >= 0)
+                        assume(len(values) == row_len)
+
                         pos = np.searchsorted(indices, col_idx)
-                        if pos < len(indices) and indices[pos] == col_idx:
+
+                        if unlikely(pos < row_len and indices[pos] == col_idx):
                             return values[pos]
                         else:
                             return 0.0
@@ -432,10 +451,17 @@ def csc_getitem_overload(csc, key):
 
                         # Get column data (contiguous dimension for CSC)
                         values, indices = csc.col_to_numpy(col_idx)
+                        col_len = len(indices)
+
+                        # Assume valid column data
+                        assume(col_len >= 0)
+                        assume(len(values) == col_len)
 
                         # Binary search for the row
                         pos = np.searchsorted(indices, row_idx)
-                        if pos < len(indices) and indices[pos] == row_idx:
+
+                        # Sparse position is more common
+                        if unlikely(pos < col_len and indices[pos] == row_idx):
                             return values[pos]
                         else:
                             return 0.0
@@ -450,8 +476,14 @@ def csc_getitem_overload(csc, key):
                             raise IndexError("column index out of bounds")
 
                         values, indices = csc.col_to_numpy(col_idx)
+                        col_len = len(indices)
+
+                        assume(col_len >= 0)
+                        assume(len(values) == col_len)
+
                         pos = np.searchsorted(indices, row_idx)
-                        if pos < len(indices) and indices[pos] == row_idx:
+
+                        if unlikely(pos < col_len and indices[pos] == row_idx):
                             return values[pos]
                         else:
                             return 0.0

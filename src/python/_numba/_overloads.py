@@ -12,6 +12,12 @@ from numba.extending import overload_method, overload_attribute, overload
 from ._types import CSRType, CSCType
 from ._ffi import _make_array_from_ptr_f64, _make_array_from_ptr_f32, _make_array_from_ptr_i64
 
+# Import optimization intrinsics
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from optim import assume, likely, unlikely
+
 
 # =============================================================================
 # CSR: Basic Properties
@@ -237,10 +243,15 @@ def csr_row_impl(csr, row_idx, copy=False):
 
 @overload_method(CSRType, 'col')
 def csr_col_impl(csr, col_idx):
-    """CSR.col() - non-contiguous dimension, requires traversing all rows."""
+    """CSR.col() - non-contiguous dimension, requires traversing all rows.
+
+    Optimized with:
+    - assume() for bounds and array sizes
+    - likely() for sparse hit rate optimization
+    """
     if csr.dtype == types.float64:
         def impl(csr, col_idx):
-            # Bounds check
+            # Bounds check with assume to help optimizer
             if col_idx < 0 or col_idx >= csr.ncols:
                 raise IndexError("column index out of bounds")
 
@@ -249,15 +260,33 @@ def csr_col_impl(csr, col_idx):
             temp_indices = np.empty(csr.nrows, dtype=np.int64)
             count = 0
 
+            # Assume array sizes are positive (help optimizer eliminate checks)
+            assume(csr.nrows > 0)
+            assume(len(temp_values) == csr.nrows)
+            assume(len(temp_indices) == csr.nrows)
+
             # Traverse each row and use binary search
             for i in range(csr.nrows):
                 values, indices = csr.row_to_numpy(i)
+                row_len = len(indices)
+
+                # Assume valid row data
+                assume(row_len >= 0)
+                assume(len(values) == row_len)
+
                 # Binary search for the column
                 pos = np.searchsorted(indices, col_idx)
-                if pos < len(indices) and indices[pos] == col_idx:
+
+                # Sparse matrices typically have low hit rate per column
+                # So "not found" is the likely case
+                if unlikely(pos < row_len and indices[pos] == col_idx):
                     temp_values[count] = values[pos]
                     temp_indices[count] = i
                     count += 1
+
+            # Assume count is within bounds
+            assume(count >= 0)
+            assume(count <= csr.nrows)
 
             # Return exact-size arrays
             return (temp_values[:count].copy(), temp_indices[:count].copy())
@@ -271,13 +300,26 @@ def csr_col_impl(csr, col_idx):
             temp_indices = np.empty(csr.nrows, dtype=np.int64)
             count = 0
 
+            assume(csr.nrows > 0)
+            assume(len(temp_values) == csr.nrows)
+            assume(len(temp_indices) == csr.nrows)
+
             for i in range(csr.nrows):
                 values, indices = csr.row_to_numpy(i)
+                row_len = len(indices)
+
+                assume(row_len >= 0)
+                assume(len(values) == row_len)
+
                 pos = np.searchsorted(indices, col_idx)
-                if pos < len(indices) and indices[pos] == col_idx:
+
+                if unlikely(pos < row_len and indices[pos] == col_idx):
                     temp_values[count] = values[pos]
                     temp_indices[count] = i
                     count += 1
+
+            assume(count >= 0)
+            assume(count <= csr.nrows)
 
             return (temp_values[:count].copy(), temp_indices[:count].copy())
         return impl
@@ -292,7 +334,12 @@ def csc_col_impl(csc, col_idx, copy=False):
 
 @overload_method(CSCType, 'row')
 def csc_row_impl(csc, row_idx):
-    """CSC.row() - non-contiguous dimension, requires traversing all columns."""
+    """CSC.row() - non-contiguous dimension, requires traversing all columns.
+
+    Optimized with:
+    - assume() for bounds and array sizes
+    - unlikely() for sparse hit rate optimization
+    """
     if csc.dtype == types.float64:
         def impl(csc, row_idx):
             # Bounds check
@@ -304,15 +351,31 @@ def csc_row_impl(csc, row_idx):
             temp_indices = np.empty(csc.ncols, dtype=np.int64)
             count = 0
 
+            # Assume positive sizes
+            assume(csc.ncols > 0)
+            assume(len(temp_values) == csc.ncols)
+            assume(len(temp_indices) == csc.ncols)
+
             # Traverse each column and use binary search
             for j in range(csc.ncols):
                 values, indices = csc.col_to_numpy(j)
+                col_len = len(indices)
+
+                # Assume valid column data
+                assume(col_len >= 0)
+                assume(len(values) == col_len)
+
                 # Binary search for the row
                 pos = np.searchsorted(indices, row_idx)
-                if pos < len(indices) and indices[pos] == row_idx:
+
+                # Sparse hit is unlikely
+                if unlikely(pos < col_len and indices[pos] == row_idx):
                     temp_values[count] = values[pos]
                     temp_indices[count] = j
                     count += 1
+
+            assume(count >= 0)
+            assume(count <= csc.ncols)
 
             # Return exact-size arrays
             return (temp_values[:count].copy(), temp_indices[:count].copy())
@@ -326,13 +389,26 @@ def csc_row_impl(csc, row_idx):
             temp_indices = np.empty(csc.ncols, dtype=np.int64)
             count = 0
 
+            assume(csc.ncols > 0)
+            assume(len(temp_values) == csc.ncols)
+            assume(len(temp_indices) == csc.ncols)
+
             for j in range(csc.ncols):
                 values, indices = csc.col_to_numpy(j)
+                col_len = len(indices)
+
+                assume(col_len >= 0)
+                assume(len(values) == col_len)
+
                 pos = np.searchsorted(indices, row_idx)
-                if pos < len(indices) and indices[pos] == row_idx:
+
+                if unlikely(pos < col_len and indices[pos] == row_idx):
                     temp_values[count] = values[pos]
                     temp_indices[count] = j
                     count += 1
+
+            assume(count >= 0)
+            assume(count <= csc.ncols)
 
             return (temp_values[:count].copy(), temp_indices[:count].copy())
         return impl
@@ -344,34 +420,53 @@ def csc_row_impl(csc, row_idx):
 
 @overload_method(CSRType, 'get')
 def csr_get_impl(csr, row_idx, col_idx, default=0.0):
-    """CSR.get() - safe element access with default value."""
+    """CSR.get() - safe element access with default value.
+
+    Optimized with:
+    - assume() to help eliminate redundant checks
+    - unlikely() for out-of-bounds and sparse positions (common case)
+    """
     if csr.dtype == types.float64:
         def impl(csr, row_idx, col_idx, default=0.0):
             # Bounds check - return default instead of raising
-            if row_idx < 0 or row_idx >= csr.nrows:
+            # Out-of-bounds is unlikely in well-written code
+            if unlikely(row_idx < 0 or row_idx >= csr.nrows):
                 return default
-            if col_idx < 0 or col_idx >= csr.ncols:
+            if unlikely(col_idx < 0 or col_idx >= csr.ncols):
                 return default
 
             # Get row data
             values, indices = csr.row_to_numpy(row_idx)
+            row_len = len(indices)
+
+            # Assume valid data
+            assume(row_len >= 0)
+            assume(len(values) == row_len)
 
             # Binary search
             pos = np.searchsorted(indices, col_idx)
-            if pos < len(indices) and indices[pos] == col_idx:
+
+            # Sparse position (not found) is the likely case
+            if unlikely(pos < row_len and indices[pos] == col_idx):
                 return values[pos]
             return default
         return impl
     else:  # float32
         def impl(csr, row_idx, col_idx, default=0.0):
-            if row_idx < 0 or row_idx >= csr.nrows:
+            if unlikely(row_idx < 0 or row_idx >= csr.nrows):
                 return default
-            if col_idx < 0 or col_idx >= csr.ncols:
+            if unlikely(col_idx < 0 or col_idx >= csr.ncols):
                 return default
 
             values, indices = csr.row_to_numpy(row_idx)
+            row_len = len(indices)
+
+            assume(row_len >= 0)
+            assume(len(values) == row_len)
+
             pos = np.searchsorted(indices, col_idx)
-            if pos < len(indices) and indices[pos] == col_idx:
+
+            if unlikely(pos < row_len and indices[pos] == col_idx):
                 return values[pos]
             return default
         return impl
@@ -379,35 +474,52 @@ def csr_get_impl(csr, row_idx, col_idx, default=0.0):
 
 @overload_method(CSCType, 'get')
 def csc_get_impl(csc, row_idx, col_idx, default=0.0):
-    """CSC.get() - safe element access with default value."""
+    """CSC.get() - safe element access with default value.
+
+    Optimized with:
+    - assume() to help eliminate redundant checks
+    - unlikely() for out-of-bounds and sparse positions
+    """
     if csc.dtype == types.float64:
         def impl(csc, row_idx, col_idx, default=0.0):
             # Bounds check - return default instead of raising
-            if row_idx < 0 or row_idx >= csc.nrows:
+            if unlikely(row_idx < 0 or row_idx >= csc.nrows):
                 return default
-            if col_idx < 0 or col_idx >= csc.ncols:
+            if unlikely(col_idx < 0 or col_idx >= csc.ncols):
                 return default
 
             # Get column data (contiguous dimension for CSC)
             values, indices = csc.col_to_numpy(col_idx)
+            col_len = len(indices)
+
+            assume(col_len >= 0)
+            assume(len(values) == col_len)
 
             # Binary search for row
             pos = np.searchsorted(indices, row_idx)
-            if pos < len(indices) and indices[pos] == row_idx:
+
+            if unlikely(pos < col_len and indices[pos] == row_idx):
                 return values[pos]
             return default
         return impl
     else:  # float32
         def impl(csc, row_idx, col_idx, default=0.0):
-            if row_idx < 0 or row_idx >= csc.nrows:
+            if unlikely(row_idx < 0 or row_idx >= csc.nrows):
                 return default
-            if col_idx < 0 or col_idx >= csc.ncols:
+            if unlikely(col_idx < 0 or col_idx >= csc.ncols):
                 return default
 
             values, indices = csc.col_to_numpy(col_idx)
+            col_len = len(indices)
+
+            assume(col_len >= 0)
+            assume(len(values) == col_len)
+
             pos = np.searchsorted(indices, row_idx)
-            if pos < len(indices) and indices[pos] == row_idx:
+
+            if unlikely(pos < col_len and indices[pos] == row_idx):
                 return values[pos]
             return default
         return impl
+
 

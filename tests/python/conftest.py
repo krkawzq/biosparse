@@ -11,19 +11,43 @@ if _src_python not in sys.path:
 import pytest
 import numpy as np
 
-# Try to import biosparse components
+# =============================================================================
+# Check available components
+# =============================================================================
+
+BINDING_AVAILABLE = False
+OPTIM_AVAILABLE = False
+NUMBA_AVAILABLE = False
+
+# Try to import numba
+try:
+    import numba
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+
+# Try to import bindings (requires Rust library)
 try:
     from _binding import CSRF64, CSCF64, SpanF64, lib
     BINDING_AVAILABLE = lib is not None
-except (ImportError, OSError):
+except Exception:
     BINDING_AVAILABLE = False
 
+# Try to import optim (requires numba)
 try:
     from optim import disable_logging
     disable_logging()
     OPTIM_AVAILABLE = True
-except ImportError:
+except Exception:
     OPTIM_AVAILABLE = False
+
+# Check if _numba extension is available (requires both binding and numba)
+NUMBA_EXT_AVAILABLE = BINDING_AVAILABLE and NUMBA_AVAILABLE
+if NUMBA_EXT_AVAILABLE:
+    try:
+        import _numba
+    except Exception:
+        NUMBA_EXT_AVAILABLE = False
 
 
 # =============================================================================
@@ -34,21 +58,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "binding: tests requiring Rust FFI bindings")
     config.addinivalue_line("markers", "numba: tests requiring Numba")
     config.addinivalue_line("markers", "slow: slow tests")
-
-
-# =============================================================================
-# Skip conditions
-# =============================================================================
-
-requires_binding = pytest.mark.skipif(
-    not BINDING_AVAILABLE,
-    reason="Rust FFI bindings not available"
-)
-
-requires_numba = pytest.mark.skipif(
-    not OPTIM_AVAILABLE,
-    reason="Numba/optim not available"
-)
 
 
 # =============================================================================
@@ -77,7 +86,7 @@ def aligned_arr():
 
 
 # =============================================================================
-# Fixtures - Sparse Matrices
+# Fixtures - Sparse Matrices (only if bindings available)
 # =============================================================================
 
 @pytest.fixture
@@ -103,6 +112,7 @@ def csr_matrix(scipy_csr):
     """Create a biosparse CSRF64 from scipy."""
     if not BINDING_AVAILABLE:
         pytest.skip("Rust FFI bindings not available")
+    from _binding import CSRF64
     return CSRF64.from_scipy(scipy_csr)
 
 
@@ -111,4 +121,5 @@ def csc_matrix(scipy_csc):
     """Create a biosparse CSCF64 from scipy."""
     if not BINDING_AVAILABLE:
         pytest.skip("Rust FFI bindings not available")
+    from _binding import CSCF64
     return CSCF64.from_scipy(scipy_csc)
