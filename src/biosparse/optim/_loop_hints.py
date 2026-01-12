@@ -47,7 +47,8 @@ __all__ = [
 
 
 # Check if we're on Windows (no inline asm support in some LLVM builds)
-_USE_GLOBAL_MARKERS = platform.system() == 'Windows'
+# _USE_GLOBAL_MARKERS = platform.system() == 'Windows'
+_USE_GLOBAL_MARKERS = True # asm may not support in llvmlite in some versions
 
 
 def _get_constant_value(ir_value, default):

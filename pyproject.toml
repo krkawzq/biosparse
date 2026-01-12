@@ -7,7 +7,7 @@ name = "biosparse"
 version = "0.1.0"
 description = "High-performance sparse matrix computation library for bioinformatics"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "cffi",
     "numba",
