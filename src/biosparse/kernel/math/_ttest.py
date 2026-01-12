@@ -399,11 +399,11 @@ def welch_test_approx(
                 + t * ( 0.17087277 )))))))))
             )
             
-            # Clamp
+            # Clamp to valid p-value range [0, 1]
             if unlikely(tau < 0.0):
                 tau = 0.0
-            elif unlikely(tau > 2.0):
-                tau = 2.0
+            elif unlikely(tau > 1.0):
+                tau = 1.0
             
             out[i] = tau  # 2 * 0.5 * tau = tau for two-sided
         else:
@@ -484,10 +484,11 @@ def student_test_approx(
                 + t * ( 0.17087277 )))))))))
             )
             
+            # Clamp to valid p-value range [0, 1]
             if unlikely(tau < 0.0):
                 tau = 0.0
-            elif unlikely(tau > 2.0):
-                tau = 2.0
+            elif unlikely(tau > 1.0):
+                tau = 1.0
             
             out[i] = tau
         else:

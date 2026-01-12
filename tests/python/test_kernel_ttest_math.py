@@ -112,7 +112,7 @@ class TestWelchDF:
         welch_df(var1, n1, var2, n2, out)
         
         # With equal var and n, df should be n1 + n2 - 2 = 18
-        np.testing.assert_allclose(out[0], 18.0, rtol=0.01)
+        np.testing.assert_allclose(out[0], 18.0, rtol=1e-5)
     
     def test_unequal_variances(self):
         """DF with unequal variances."""
@@ -207,7 +207,7 @@ class TestWelchTest:
         welch_test(mean1, var1, n1, mean2, var2, n2, out)
         
         # Same means = no difference
-        np.testing.assert_allclose(out[0], 1.0, rtol=0.01)
+        np.testing.assert_allclose(out[0], 1.0, rtol=1e-5)
     
     def test_large_difference(self):
         """Large mean difference should give low p-value."""
@@ -263,7 +263,7 @@ class TestWelchTest:
             # Compare with scipy
             _, expected_p = scipy.stats.ttest_ind(x, y, equal_var=False)
             
-            np.testing.assert_allclose(out[0], expected_p, rtol=0.1)
+            np.testing.assert_allclose(out[0], expected_p, rtol=1e-6, atol=1e-10)
 
 
 class TestStudentTest:
@@ -281,7 +281,7 @@ class TestStudentTest:
         
         student_test(mean1, var1, n1, mean2, var2, n2, out)
         
-        np.testing.assert_allclose(out[0], 1.0, rtol=0.01)
+        np.testing.assert_allclose(out[0], 1.0, rtol=1e-5)
     
     def test_large_difference(self):
         """Large mean difference should give low p-value."""
@@ -319,7 +319,7 @@ class TestStudentTest:
             # Compare with scipy
             _, expected_p = scipy.stats.ttest_ind(x, y, equal_var=True)
             
-            np.testing.assert_allclose(out[0], expected_p, rtol=0.1)
+            np.testing.assert_allclose(out[0], expected_p, rtol=1e-6, atol=1e-10)
 
 
 # =============================================================================
@@ -356,7 +356,7 @@ class TestApproxVersions:
         assert out_approx[0] > out_approx[1] > out_approx[2] > out_approx[3]
         
         # No difference should give high p-value
-        np.testing.assert_allclose(out_approx[0], 1.0, rtol=0.01)
+        np.testing.assert_allclose(out_approx[0], 1.0, rtol=1e-5)
     
     def test_student_approx_valid_pvalues(self):
         """Approximate should return valid p-values in [0, 1]."""
@@ -378,7 +378,7 @@ class TestApproxVersions:
         assert out_approx[0] > out_approx[1] > out_approx[2] > out_approx[3]
         
         # No difference should give high p-value
-        np.testing.assert_allclose(out_approx[0], 1.0, rtol=0.01)
+        np.testing.assert_allclose(out_approx[0], 1.0, rtol=1e-5)
 
 
 # =============================================================================

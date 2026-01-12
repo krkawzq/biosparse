@@ -33,8 +33,8 @@ from biosparse._binding import CSR
 import biosparse._numba  # noqa: F401
 
 __all__ = [
-    'hvg_seurat', 'hvg_cell_ranger', 'hvg_seurat_v3', 'hvg_pearson_residuals',
-    'select_hvg_by_dispersion',
+    'hvg_seurat', 'hvg_cell_ranger', 'hvg_seurat_v3', 'hvg_seurat_v3_numba',
+    'hvg_pearson_residuals', 'select_hvg_by_dispersion',
     'compute_moments', 'compute_clipped_moments', 'compute_dispersion',
     'normalize_dispersion', 'select_top_k', 'select_top_k_sorted',
 ]
@@ -788,9 +788,171 @@ def hvg_cell_ranger(csr: CSR, n_top_genes: int) -> tuple:
 from biosparse.kernel.math._regression import loess_fit_parallel, compute_reg_std_and_clip
 
 
+@parallel_jit(cache=True, boundscheck=False, nogil=True)
+def _compute_reg_std_clip_parallel(
+    fitted_log_var: np.ndarray,
+    means: np.ndarray,
+    sqrt_n: float
+) -> tuple:
+    """Compute reg_std and clip_vals in parallel."""
+    TEN = 10.0
+    n_genes = len(means)
+    
+    reg_std = np.empty(n_genes, dtype=np.float64)
+    clip_vals = np.empty(n_genes, dtype=np.float64)
+    
+    for i in prange(n_genes):
+        rs = math.sqrt(math.pow(TEN, fitted_log_var[i]))
+        reg_std[i] = rs
+        clip_vals[i] = rs * sqrt_n + means[i]
+    
+    return reg_std, clip_vals
+
+
+@parallel_jit(cache=True, boundscheck=False, nogil=True)
+def _compute_variances_norm_parallel(
+    reg_std: np.ndarray,
+    means: np.ndarray,
+    sum_clip: np.ndarray,
+    sq_clip: np.ndarray,
+    n_cells: int
+) -> np.ndarray:
+    """Compute normalized variance in parallel."""
+    EPS = 1e-12
+    ZERO = 0.0
+    ONE = 1.0
+    TWO = 2.0
+    
+    n_genes = len(means)
+    n_f = float(n_cells)
+    inv_nm1 = ONE / (n_f - ONE)
+    
+    variances_norm = np.empty(n_genes, dtype=np.float64)
+    
+    for i in prange(n_genes):
+        std = reg_std[i]
+        if likely(std > EPS):
+            std_sq = std * std
+            inv_factor = inv_nm1 / std_sq
+            m = means[i]
+            val = n_f * m * m + sq_clip[i] - TWO * sum_clip[i] * m
+            variances_norm[i] = inv_factor * val
+        else:
+            variances_norm[i] = ZERO
+    
+    return variances_norm
+
+
 @fast_jit(cache=True, boundscheck=False, nogil=True)
+def _hvg_seurat_v3_core(
+    means: np.ndarray,
+    variances: np.ndarray,
+    fitted_log_var: np.ndarray,
+    csr: CSR,
+    n_top_genes: int
+) -> tuple:
+    """Core computation for Seurat V3 after LOESS fitting. FULLY PARALLEL."""
+    n_genes = len(means)
+    n_cells = csr.ncols
+    sqrt_n = math.sqrt(float(n_cells))
+    
+    # PARALLEL: Compute reg_std and clip_vals
+    reg_std, clip_vals = _compute_reg_std_clip_parallel(fitted_log_var, means, sqrt_n)
+    
+    # PARALLEL: clipped moments
+    sum_clip, sq_clip = compute_clipped_moments(csr, clip_vals)
+    
+    # PARALLEL: Normalized variance
+    variances_norm = _compute_variances_norm_parallel(reg_std, means, sum_clip, sq_clip, n_cells)
+    
+    indices, mask = select_top_k(variances_norm, n_top_genes)
+    return indices, mask, variances_norm
+
+
+@parallel_jit(cache=True, boundscheck=False, nogil=True)
+def _map_fitted_to_full(fitted: np.ndarray, valid_idx: np.ndarray, n_genes: int) -> np.ndarray:
+    """Map fitted values back to full gene array. PARALLEL."""
+    fitted_log_var = np.zeros(n_genes, dtype=np.float64)
+    n_valid = len(valid_idx)
+    
+    for j in prange(n_valid):
+        fitted_log_var[valid_idx[j]] = fitted[j]
+    
+    return fitted_log_var
+
+
+@parallel_jit(cache=True, boundscheck=False, nogil=True)
+def _extract_valid_log(
+    means: np.ndarray, 
+    variances: np.ndarray,
+    valid_idx: np.ndarray
+) -> tuple:
+    """Extract valid genes and compute log10. PARALLEL."""
+    n_valid = len(valid_idx)
+    log_means = np.empty(n_valid, dtype=np.float64)
+    log_vars = np.empty(n_valid, dtype=np.float64)
+    
+    for j in prange(n_valid):
+        idx = valid_idx[j]
+        log_means[j] = math.log10(means[idx])
+        log_vars[j] = math.log10(variances[idx])
+    
+    return log_means, log_vars
+
+
 def hvg_seurat_v3(csr: CSR, n_top_genes: int, span: float = 0.3) -> tuple:
-    """Seurat V3 HVG (VST + LOESS). ALL operations PARALLEL."""
+    """Seurat V3 HVG (VST + LOESS). FULLY PARALLEL.
+    
+    Args:
+        csr: CSR sparse matrix (genes x cells)
+        n_top_genes: Number of top genes to select
+        span: LOESS span parameter (default 0.3)
+    
+    Returns:
+        Tuple of (indices, mask, means, variances, variances_norm)
+    """
+    n_genes = csr.nrows
+    
+    # PARALLEL: Compute moments
+    means, variances = compute_moments(csr, 1)
+    
+    # Filter constant genes (var > 0, matching scanpy)
+    not_const = variances > 0
+    n_valid = int(not_const.sum())
+    
+    if n_valid == 0:
+        return (np.zeros(0, dtype=np.int64),
+                np.zeros(n_genes, dtype=np.uint8),
+                means, variances,
+                np.zeros(n_genes, dtype=np.float64))
+    
+    # Get valid indices
+    valid_idx = np.where(not_const)[0].astype(np.int64)
+    
+    # PARALLEL: Extract and log10 transform
+    log_means, log_vars = _extract_valid_log(means, variances, valid_idx)
+    
+    # PARALLEL: LOESS regression
+    fitted = loess_fit_parallel(log_means, log_vars, span, 2)
+    
+    # PARALLEL: Map back to full gene array
+    fitted_log_var = _map_fitted_to_full(fitted, valid_idx, n_genes)
+    
+    # PARALLEL: Core computation
+    indices, mask, variances_norm = _hvg_seurat_v3_core(
+        means, variances, fitted_log_var, csr, n_top_genes
+    )
+    
+    return indices, mask, means, variances, variances_norm
+
+
+@fast_jit(cache=True, boundscheck=False, nogil=True)
+def hvg_seurat_v3_numba(csr: CSR, n_top_genes: int, span: float = 0.3) -> tuple:
+    """Seurat V3 HVG - Pure Numba version (faster but may differ slightly from scanpy).
+    
+    This version uses biosparse's parallel LOESS implementation.
+    For exact scanpy compatibility, use hvg_seurat_v3() with use_skmisc=True.
+    """
     # === INLINE CONSTANTS ===
     EPS = 1e-12
     ZERO = 0.0
@@ -809,10 +971,10 @@ def hvg_seurat_v3(csr: CSR, n_top_genes: int, span: float = 0.3) -> tuple:
     # PARALLEL: moments
     means, variances = compute_moments(csr, 1)
     
-    # Count valid genes
+    # Count valid genes (var > 0 to match scanpy)
     n_valid = 0
     for i in range(n_genes):
-        if variances[i] > EPS:
+        if variances[i] > ZERO:
             n_valid += 1
     
     if unlikely(n_valid == 0):
@@ -821,16 +983,16 @@ def hvg_seurat_v3(csr: CSR, n_top_genes: int, span: float = 0.3) -> tuple:
                 means, variances,
                 np.zeros(n_genes, dtype=np.float64))
     
-    # Extract valid genes
+    # Extract valid genes - NO EPS added to match scanpy!
     log_means = np.empty(n_valid, dtype=np.float64)
     log_vars = np.empty(n_valid, dtype=np.float64)
     valid_idx = np.empty(n_valid, dtype=np.int64)
     
     j = 0
     for i in range(n_genes):
-        if variances[i] > EPS:
-            log_means[j] = math.log10(means[i] + EPS)
-            log_vars[j] = math.log10(variances[i] + EPS)
+        if variances[i] > ZERO:
+            log_means[j] = math.log10(means[i])
+            log_vars[j] = math.log10(variances[i])
             valid_idx[j] = i
             j += 1
     
@@ -935,16 +1097,163 @@ def _col_sums_chunked(csr: CSR) -> np.ndarray:
                 for j in range(nnz):
                     local_sums[chunk, cols[j]] += float(values[j])
     
-    # Merge all chunks (sequential but small)
+    # Merge all chunks - parallel over columns
     sums = np.zeros(n_cols, dtype=np.float64)
     
-    for col in range(n_cols):
+    for col in prange(n_cols):
         s = ZERO
         for chunk in range(actual_chunks):
             s += local_sums[chunk, col]
         sums[col] = s
     
     return sums
+
+
+@parallel_jit(cache=True, boundscheck=False, nogil=True)
+def _precompute_zero_residual_contributions(
+    row_sums: np.ndarray,
+    col_sums: np.ndarray,
+    total: float,
+    theta: float,
+    clip: float
+) -> tuple:
+    """Precompute sum and sum-of-squares of zero residuals for ALL genes.
+    
+    PARALLEL over genes. Each gene computes its "all-zero" statistics.
+    Then in the sparse loop, we only correct for non-zero entries.
+    
+    Complexity: O(n_genes * n_cells) but fully parallelized.
+    """
+    # === INLINE CONSTANTS ===
+    EPS = 1e-12
+    ZERO = 0.0
+    
+    n_genes = len(row_sums)
+    n_cells = len(col_sums)
+    
+    inv_theta = 1.0 / theta
+    inv_total = 1.0 / total
+    neg_clip = -clip
+    
+    # Per-cell factor: factor[j] = col_sums[j] / total
+    cell_factors = np.empty(n_cells, dtype=np.float64)
+    
+    vectorize(8)
+    for j in range(n_cells):
+        cell_factors[j] = col_sums[j] * inv_total
+    
+    # Output arrays
+    all_zero_sum = np.empty(n_genes, dtype=np.float64)
+    all_zero_sq = np.empty(n_genes, dtype=np.float64)
+    
+    # PARALLEL: Compute per-gene stats
+    for gene in prange(n_genes):
+        gene_sum = row_sums[gene]
+        
+        sum_res = ZERO
+        sq_res = ZERO
+        
+        vectorize(8)
+        for j in range(n_cells):
+            mu = gene_sum * cell_factors[j]
+            
+            if likely(mu > EPS):
+                denom = math.sqrt(mu + mu * mu * inv_theta)
+                res = -mu / denom
+            else:
+                res = ZERO
+            
+            # Clip
+            if res > clip:
+                res = clip
+            elif res < neg_clip:
+                res = neg_clip
+            
+            sum_res += res
+            sq_res += res * res
+        
+        all_zero_sum[gene] = sum_res
+        all_zero_sq[gene] = sq_res
+    
+    return all_zero_sum, all_zero_sq, cell_factors
+
+
+@parallel_jit(cache=True, inline='always', boundscheck=False, nogil=True)
+def _pearson_variance_sparse(
+    csr: CSR,
+    row_sums: np.ndarray,
+    all_zero_sum: np.ndarray,
+    all_zero_sq: np.ndarray,
+    cell_factors: np.ndarray,
+    theta: float,
+    clip: float
+) -> np.ndarray:
+    """Pearson variance - sparse-optimized parallel kernel.
+    
+    Uses precomputed "all-zero" statistics and only corrects for nnz entries.
+    Complexity: O(total_nnz) which is optimal for sparse data.
+    """
+    # === INLINE CONSTANTS ===
+    EPS = 1e-12
+    ZERO = 0.0
+    
+    n_genes = csr.nrows
+    n_cells = csr.ncols
+    
+    assume(n_genes > 0)
+    assume(n_cells > 0)
+    
+    inv_theta = 1.0 / theta
+    inv_n_cells = 1.0 / float(n_cells)
+    neg_clip = -clip
+    
+    residual_vars = np.empty(n_genes, dtype=np.float64)
+    
+    for gene in prange(n_genes):
+        values, cols = csr.row_to_numpy(gene)
+        nnz = len(values)
+        gene_sum = row_sums[gene]
+        
+        # Start with precomputed "all-zero" statistics
+        sum_res = all_zero_sum[gene]
+        sq_res = all_zero_sq[gene]
+        
+        # Correct for non-zero entries: O(nnz) per gene
+        vectorize(8)
+        for j in range(nnz):
+            cell = cols[j]
+            val = float(values[j])
+            mu = gene_sum * cell_factors[cell]
+            
+            if likely(mu > EPS):
+                denom = math.sqrt(mu + mu * mu * inv_theta)
+                res_zero = -mu / denom
+                res_nnz = (val - mu) / denom
+            else:
+                res_zero = ZERO
+                res_nnz = ZERO
+            
+            # Clip zero residual
+            if res_zero > clip:
+                res_zero = clip
+            elif res_zero < neg_clip:
+                res_zero = neg_clip
+            
+            # Clip actual residual
+            if res_nnz > clip:
+                res_nnz = clip
+            elif res_nnz < neg_clip:
+                res_nnz = neg_clip
+            
+            # Correct: subtract zero contribution, add actual contribution
+            sum_res += res_nnz - res_zero
+            sq_res += res_nnz * res_nnz - res_zero * res_zero
+        
+        # Variance = E[X^2] - E[X]^2
+        mean_res = sum_res * inv_n_cells
+        residual_vars[gene] = sq_res * inv_n_cells - mean_res * mean_res
+    
+    return residual_vars
 
 
 @parallel_jit(cache=True, inline='always', boundscheck=False, nogil=True)
@@ -956,10 +1265,12 @@ def _pearson_variance_optimized(
     theta: float,
     clip: float
 ) -> np.ndarray:
-    """Pearson residual variance. OPTIMIZED: cache residuals. [OPT-2]
+    """Pearson residual variance - optimized version without bitmap allocation.
     
-    Key optimization: Store clipped residuals in first pass,
-    then compute variance in second pass without recomputation.
+    This version avoids per-gene bitmap allocation by using the
+    "compute all-zero then correct" strategy.
+    
+    Still O(n_genes * n_cells) but with better cache behavior and no allocation.
     """
     # === INLINE CONSTANTS ===
     EPS = 1e-12
@@ -977,6 +1288,13 @@ def _pearson_variance_optimized(
     inv_n_cells = 1.0 / float(n_cells)
     neg_clip = -clip
     
+    # Precompute per-cell factor
+    cell_factors = np.empty(n_cells, dtype=np.float64)
+    
+    vectorize(8)
+    for j in range(n_cells):
+        cell_factors[j] = col_sums[j] * inv_total
+    
     residual_vars = np.empty(n_genes, dtype=np.float64)
     
     for gene in prange(n_genes):
@@ -984,27 +1302,17 @@ def _pearson_variance_optimized(
         nnz = len(values)
         gene_sum = row_sums[gene]
         
-        # Allocate residual cache for this gene
-        # Only store non-zero and zero residuals needed
-        residuals_nnz = np.empty(nnz, dtype=np.float64)
+        # Phase 1: Compute total sum/sq for ALL cells (as if all zero)
+        sum_all_zero = ZERO
+        sq_all_zero = ZERO
         
-        # Thread-local bitmap for zero detection
-        is_nnz = np.zeros(n_cells, dtype=np.uint8)
-        
-        # === Single pass: compute and cache all residuals ===
-        sum_res = ZERO
-        
-        # Non-zeros
         vectorize(8)
-        for j in range(nnz):
-            cell = cols[j]
-            is_nnz[cell] = 1
-            val = float(values[j])
-            mu = gene_sum * col_sums[cell] * inv_total
+        for j in range(n_cells):
+            mu = gene_sum * cell_factors[j]
             
             if likely(mu > EPS):
                 denom = math.sqrt(mu + mu * mu * inv_theta)
-                res = (val - mu) / denom
+                res = -mu / denom
             else:
                 res = ZERO
             
@@ -1014,111 +1322,89 @@ def _pearson_variance_optimized(
             elif res < neg_clip:
                 res = neg_clip
             
-            residuals_nnz[j] = res
-            sum_res += res
+            sum_all_zero += res
+            sq_all_zero += res * res
         
-        # Zeros - compute sum and cache common residual
-        # For zeros, val=0, so res = -mu / denom
-        n_zeros = n_cells - nnz
-        sum_res_zeros = ZERO
+        # Phase 2: Process non-zeros and correct the sums
+        sum_res = sum_all_zero
+        sq_res = sq_all_zero
         
-        # Pre-compute zero residuals for variance (no need to store all)
-        # We need: sum of (res_zero - mean_res)^2
-        # res_zero = -mu / denom for each zero cell
-        
-        # First, accumulate sum_res for zeros
-        vectorize(8)
-        interleave(4)
-        for cell in range(n_cells):
-            if is_nnz[cell] == 0:
-                mu = gene_sum * col_sums[cell] * inv_total
-                if likely(mu > EPS):
-                    denom = math.sqrt(mu + mu * mu * inv_theta)
-                    res = -mu / denom
-                else:
-                    res = ZERO
-                
-                if res > clip:
-                    res = clip
-                elif res < neg_clip:
-                    res = neg_clip
-                
-                sum_res_zeros += res
-        
-        sum_res += sum_res_zeros
-        mean_res = sum_res * inv_n_cells
-        
-        # === Second pass: compute variance using cached residuals ===
-        var_sum = ZERO
-        
-        # Non-zeros (use cached)
         vectorize(8)
         for j in range(nnz):
-            diff = residuals_nnz[j] - mean_res
-            var_sum += diff * diff
+            cell = cols[j]
+            val = float(values[j])
+            mu = gene_sum * cell_factors[cell]
+            
+            if likely(mu > EPS):
+                denom = math.sqrt(mu + mu * mu * inv_theta)
+                res_zero = -mu / denom
+                res_nnz = (val - mu) / denom
+            else:
+                res_zero = ZERO
+                res_nnz = ZERO
+            
+            # Clip zero residual
+            if res_zero > clip:
+                res_zero = clip
+            elif res_zero < neg_clip:
+                res_zero = neg_clip
+            
+            # Clip actual residual
+            if res_nnz > clip:
+                res_nnz = clip
+            elif res_nnz < neg_clip:
+                res_nnz = neg_clip
+            
+            # Correct: subtract zero, add actual
+            sum_res += res_nnz - res_zero
+            sq_res += res_nnz * res_nnz - res_zero * res_zero
         
-        # Zeros (recompute - simpler than storing n_cells values)
-        for cell in range(n_cells):
-            if is_nnz[cell] == 0:
-                mu = gene_sum * col_sums[cell] * inv_total
-                if likely(mu > EPS):
-                    denom = math.sqrt(mu + mu * mu * inv_theta)
-                    res = -mu / denom
-                else:
-                    res = ZERO
-                
-                if res > clip:
-                    res = clip
-                elif res < neg_clip:
-                    res = neg_clip
-                
-                diff = res - mean_res
-                var_sum += diff * diff
-        
-        residual_vars[gene] = var_sum * inv_n_cells
+        # Variance = E[X^2] - E[X]^2
+        mean_res = sum_res * inv_n_cells
+        residual_vars[gene] = sq_res * inv_n_cells - mean_res * mean_res
     
     return residual_vars
 
 
-@fast_jit(cache=True, fastmath=True, boundscheck=False, nogil=True)
 def hvg_pearson_residuals(
     csr: CSR,
     n_top_genes: int,
     theta: float = 100.0,
     clip: float = -1.0
 ) -> tuple:
-    """Pearson residuals HVG. OPTIMIZED: chunked col_sums + cached residuals."""
-    # === INLINE CONSTANTS ===
-    ZERO = 0.0
+    """Pearson residuals HVG. FULLY OPTIMIZED:
     
+    1. Parallel row/col sums
+    2. Parallel "all-zero" precomputation  
+    3. Parallel sparse correction (O(nnz) per gene)
+    """
     n_genes = csr.nrows
     n_cells = csr.ncols
     
-    assume(n_genes > 0)
-    assume(n_cells > 0)
-    assume(n_top_genes > 0)
-    assume(theta > ZERO)
-    
-    if clip < ZERO:
+    if clip < 0:
         clip = math.sqrt(float(n_cells))
     
     # PARALLEL: row sums
     row_sums = _row_sums_parallel(csr)
     
-    # PARALLEL: col sums via chunked reduction [OPT-1]
+    # PARALLEL: col sums via chunked reduction
     col_sums = _col_sums_chunked(csr)
     
     # Total sum
-    total = ZERO
-    vectorize(8)
-    for i in range(n_genes):
-        total += row_sums[i]
+    total = float(np.sum(row_sums))
     
     # PARALLEL: moments
     means, variances = compute_moments(csr, 1)
     
-    # PARALLEL: Pearson variance [OPT-2]
-    residual_vars = _pearson_variance_optimized(csr, row_sums, col_sums, total, theta, clip)
+    # PARALLEL: Precompute "all-zero" statistics for each gene
+    all_zero_sum, all_zero_sq, cell_factors = _precompute_zero_residual_contributions(
+        row_sums, col_sums, total, theta, clip
+    )
+    
+    # PARALLEL: Sparse correction (O(nnz) per gene)
+    residual_vars = _pearson_variance_sparse(
+        csr, row_sums, all_zero_sum, all_zero_sq, cell_factors, theta, clip
+    )
     
     indices, mask = select_top_k(residual_vars, n_top_genes)
     return indices, mask, means, variances, residual_vars

@@ -159,7 +159,7 @@ class TestMWUTwoSided:
             mwu_p_value_two_sided(U, n1_arr, n2_arr, tie_sum, 0.5, out)
             expected = reference_mwu_pvalue(u, n1, n2, tie, 'two-sided', 0.5)
             
-            np.testing.assert_allclose(out[0], expected, rtol=0.01,
+            np.testing.assert_allclose(out[0], expected, rtol=1e-5,
                 err_msg=f"Failed for U={u}, n1={n1}, n2={n2}")
 
 
@@ -231,8 +231,8 @@ class TestMWUOneSided:
         mwu_p_value_less(U, n1_arr, n2_arr, tie_sum, 0.0, out_less)
         
         # At mean, both should be ~0.5
-        np.testing.assert_allclose(out_greater[0], 0.5, rtol=0.01)
-        np.testing.assert_allclose(out_less[0], 0.5, rtol=0.01)
+        np.testing.assert_allclose(out_greater[0], 0.5, rtol=1e-5)
+        np.testing.assert_allclose(out_less[0], 0.5, rtol=1e-5)
 
 
 # =============================================================================

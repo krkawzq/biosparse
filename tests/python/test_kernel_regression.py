@@ -113,8 +113,8 @@ class TestWeightedPolyfit:
         a, b = weighted_polyfit_1(x, y, weights, 5)
         
         # Should still be reasonably close to true values
-        np.testing.assert_allclose(a, 3.0, atol=0.5)
-        np.testing.assert_allclose(b, 2.0, atol=0.2)
+        np.testing.assert_allclose(a, 3.0, atol=0.2)
+        np.testing.assert_allclose(b, 2.0, atol=0.1)
     
     def test_weighted_polyfit_2_linear(self):
         """Quadratic fit of linear data should have c ≈ 0."""
@@ -303,4 +303,4 @@ class TestLoessIntegration:
         
         assert len(fitted) == 3
         # Should be close to linear
-        np.testing.assert_allclose(fitted, y, rtol=0.1)
+        np.testing.assert_allclose(fitted, y, rtol=0.05)

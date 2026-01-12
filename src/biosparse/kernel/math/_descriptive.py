@@ -90,10 +90,10 @@ def _qsort_idx(arr: np.ndarray, idx: np.ndarray, lo: int, hi: int) -> None:
     
     while True:
         i += 1
-        while arr[idx[i]] < pivot:
+        while i < hi and arr[idx[i]] < pivot:
             i += 1
         j -= 1
-        while arr[idx[j]] > pivot:
+        while j > lo and arr[idx[j]] > pivot:
             j -= 1
         if i >= j:
             break

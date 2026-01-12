@@ -125,7 +125,7 @@ class TestStdtr:
         for df, t in test_cases:
             result = stdtr(df, t)
             expected = scipy.stats.t.cdf(t, df)
-            np.testing.assert_allclose(result, expected, rtol=1e-4,
+            np.testing.assert_allclose(result, expected, rtol=1e-6,
                 err_msg=f"stdtr({df}, {t}) failed")
 
 
@@ -201,7 +201,7 @@ class TestTTestPvalue:
         for t_stat, df in test_cases:
             result = t_test_pvalue(t_stat, df, alternative=0)
             expected = 2 * scipy.stats.t.sf(abs(t_stat), df)
-            np.testing.assert_allclose(result, expected, rtol=1e-3,
+            np.testing.assert_allclose(result, expected, rtol=1e-5,
                 err_msg=f"t_test_pvalue({t_stat}, {df}) failed")
 
 
@@ -278,7 +278,7 @@ class TestEdgeCases:
         
         result = stdtr(df, t)
         # Should be close to normal CDF at 1.96 ≈ 0.975
-        np.testing.assert_allclose(result, 0.975, rtol=0.01)
+        np.testing.assert_allclose(result, 0.975, rtol=1e-3)
     
     def test_large_t(self):
         """Large |t| should give CDF close to 0 or 1."""
