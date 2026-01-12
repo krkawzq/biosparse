@@ -14,7 +14,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 try:
-    from _binding import lib
+    from biosparse._binding import lib
     _BINDING_AVAILABLE = lib is not None
 except Exception:
     _BINDING_AVAILABLE = False
@@ -22,7 +22,7 @@ except Exception:
 _NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
 if _NUMBA_EXT_AVAILABLE:
     try:
-        import _numba
+        import biosparse._numba
     except Exception:
         _NUMBA_EXT_AVAILABLE = False
 
@@ -35,7 +35,7 @@ class TestTransposeJIT:
         """Test CSR.T() in JIT returns correct dimensions."""
         from numba import njit
         import scipy.sparse as sp
-        from _binding._sparse import CSRF64, CSCF64
+        from biosparse._binding._sparse import CSRF64, CSCF64
         
         @njit
         def transpose_csr(csr):
@@ -59,7 +59,7 @@ class TestTransposeJIT:
         """Test CSC.T() in JIT returns correct dimensions."""
         from numba import njit
         import scipy.sparse as sp
-        from _binding._sparse import CSCF64, CSRF64
+        from biosparse._binding._sparse import CSCF64, CSRF64
         
         @njit
         def transpose_csc(csc):
@@ -83,7 +83,7 @@ class TestTransposeJIT:
         """Test CSR.T().T() in JIT returns to CSR."""
         from numba import njit
         import scipy.sparse as sp
-        from _binding._sparse import CSRF64
+        from biosparse._binding._sparse import CSRF64
         
         @njit
         def double_transpose(csr):
@@ -107,7 +107,7 @@ class TestTransposeJIT:
         """Test float32 transpose in JIT."""
         from numba import njit
         import scipy.sparse as sp
-        from _binding._sparse import CSRF32, CSCF32
+        from biosparse._binding._sparse import CSRF32, CSCF32
         
         @njit
         def transpose_f32(csr):
@@ -129,7 +129,7 @@ class TestTransposeJIT:
         """Test that transpose returns proper typed object in JIT."""
         from numba import njit
         import scipy.sparse as sp
-        from _binding._sparse import CSRF64, CSCF64
+        from biosparse._binding._sparse import CSRF64, CSCF64
         
         @njit
         def get_transposed(csr):
@@ -156,7 +156,7 @@ class TestTransposePython:
     def test_csr_transpose_correctness(self):
         """Test CSR.T() produces correct transposed matrix."""
         import scipy.sparse as sp
-        from _binding._sparse import CSRF64, CSCF64
+        from biosparse._binding._sparse import CSRF64, CSCF64
         
         np.random.seed(42)
         scipy_csr = sp.random(50, 80, density=0.1, format='csr', dtype=np.float64)
@@ -172,7 +172,7 @@ class TestTransposePython:
     def test_csc_transpose_correctness(self):
         """Test CSC.T() produces correct transposed matrix."""
         import scipy.sparse as sp
-        from _binding._sparse import CSCF64, CSRF64
+        from biosparse._binding._sparse import CSCF64, CSRF64
         
         np.random.seed(123)
         scipy_csc = sp.random(60, 40, density=0.08, format='csc', dtype=np.float64)
@@ -188,7 +188,7 @@ class TestTransposePython:
     def test_transpose_preserves_values(self):
         """Test that transpose preserves all non-zero values."""
         import scipy.sparse as sp
-        from _binding._sparse import CSRF64
+        from biosparse._binding._sparse import CSRF64
         
         # Create matrix with specific values
         data = np.array([1.5, 2.7, 3.14, 4.0, 5.5])
@@ -209,7 +209,7 @@ class TestTransposePython:
     def test_transpose_empty_matrix(self):
         """Test transpose of empty matrix."""
         import scipy.sparse as sp
-        from _binding._sparse import CSRF64
+        from biosparse._binding._sparse import CSRF64
         
         scipy_csr = sp.csr_matrix((10, 20), dtype=np.float64)
         

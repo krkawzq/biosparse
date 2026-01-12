@@ -17,7 +17,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 try:
-    from _binding import lib
+    from biosparse._binding import lib
     _BINDING_AVAILABLE = lib is not None
 except Exception:
     _BINDING_AVAILABLE = False
@@ -25,7 +25,7 @@ except Exception:
 _NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
 if _NUMBA_EXT_AVAILABLE:
     try:
-        import _numba
+        import biosparse._numba
     except Exception:
         _NUMBA_EXT_AVAILABLE = False
 
@@ -43,7 +43,7 @@ def csr_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSRF64
+    from biosparse._binding import CSRF64
     
     np.random.seed(42)
     mat = sp.random(100, 80, density=0.1, format='csr', dtype=np.float64)
@@ -58,7 +58,7 @@ def csc_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSCF64
+    from biosparse._binding import CSCF64
     
     np.random.seed(42)
     mat = sp.random(100, 80, density=0.1, format='csc', dtype=np.float64)
@@ -71,7 +71,7 @@ class TestSpMV:
     def test_csr_spmv(self, csr_f64):
         """CSR SpMV should match scipy result."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         vec = np.random.rand(scipy_mat.shape[1])
@@ -96,7 +96,7 @@ class TestSpMV:
     def test_csc_spmv(self, csc_f64):
         """CSC SpMV (A^T * v) should match scipy result."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         vec = np.random.rand(scipy_mat.shape[0])
@@ -125,7 +125,7 @@ class TestBlockOperations:
     def test_block_sum(self, csr_f64):
         """Sum of sliced block should match scipy."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -145,7 +145,7 @@ class TestBlockOperations:
     def test_diagonal_extraction(self, csr_f64):
         """Extract diagonal elements using get()."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -168,7 +168,7 @@ class TestChainingOperations:
     def test_slice_convert_iterate(self, csr_f64):
         """Slice -> Convert -> Iterate chain should work."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -192,7 +192,7 @@ class TestChainingOperations:
     def test_clone_modify_original_unchanged(self, csr_f64):
         """Clone should create independent copy."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -222,7 +222,7 @@ class TestComplexAlgorithms:
     def test_row_normalize(self, csr_f64):
         """Row normalization should produce correct results."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -245,7 +245,7 @@ class TestComplexAlgorithms:
     def test_nonzero_pattern(self, csr_f64):
         """Count non-zeros per row should be correct."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -265,7 +265,7 @@ class TestComplexAlgorithms:
     def test_find_max_per_row(self, csr_f64):
         """Find maximum value per row."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -302,7 +302,7 @@ class TestPerformancePatterns:
     def test_repeated_access(self, csr_f64):
         """Repeated row access should be efficient."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -322,7 +322,7 @@ class TestPerformancePatterns:
     def test_combined_csr_csc_operations(self, csr_f64, csc_f64):
         """Operations using both CSR and CSC should work."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_csr = csr_f64
         csc, scipy_csc = csc_f64

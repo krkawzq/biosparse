@@ -21,11 +21,11 @@ import numpy as np
 from numba import prange
 from scipy import special
 
-from optim import parallel_jit, assume, vectorize
-from _binding import CSR
+from biosparse.optim import parallel_jit, assume, vectorize
+from biosparse._binding import CSR
 
 # Import for type hints only
-import _numba  # noqa: F401 - registers CSR/CSC types
+import biosparse._numba  # noqa: F401 - registers CSR/CSC types
 
 __all__ = [
     'mwu_test',
@@ -73,6 +73,8 @@ def mwu_test(
 ) -> tuple:
     """Perform MWU test: reference (group 0) vs all targets (groups 1..n_targets).
     
+    Optimized with prange for parallel row processing.
+    
     Args:
         csr: CSR sparse matrix (CSRF32 or CSRF64), genes x cells
         group_ids: Group assignment for each column (cell)
@@ -93,7 +95,7 @@ def mwu_test(
     assume(n_rows > 0)
     assume(n_targets > 0)
     
-    # Count elements in each group
+    # Count elements in each group (sequential, small)
     n_groups = n_targets + 1
     group_counts = count_groups(group_ids, n_groups)
     n_ref = group_counts[0]
@@ -108,8 +110,9 @@ def mwu_test(
     
     n_ref_f = float(n_ref)
     
-    row = 0
-    for values, col_indices in csr:
+    # Parallel row processing
+    for row in prange(n_rows):
+        values, col_indices = csr.row(row)
         nnz = len(values)
         
         # Partition values by group
@@ -300,7 +303,5 @@ def mwu_test(
                 out_auroc[row, t] = U / (n_ref_f * n_tar_f) + 0.5
             else:
                 out_auroc[row, t] = 0.5
-        
-        row += 1
     
     return out_u_stats, out_p_values, out_log2_fc, out_auroc

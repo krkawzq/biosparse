@@ -6,7 +6,7 @@ import numpy as np
 pytest.importorskip("numba")
 
 from numba import njit
-from optim import assume, likely, unlikely
+from biosparse.optim import assume, likely, unlikely
 
 
 class TestAssume:

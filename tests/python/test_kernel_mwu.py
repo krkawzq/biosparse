@@ -11,8 +11,8 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 try:
-    from _binding import CSRF64
-    import _numba
+    from biosparse._binding import CSRF64
+    import biosparse._numba
     BINDING_AVAILABLE = True
 except Exception:
     BINDING_AVAILABLE = False
@@ -60,7 +60,7 @@ class TestMWUTwoGroups:
     
     def test_mwu_basic(self, gene_expression_matrix, group_ids_two):
         """MWU should produce valid results."""
-        from kernel.mwu import mwu_test
+        from biosparse.kernel.mwu import mwu_test
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -82,7 +82,7 @@ class TestMWUTwoGroups:
     
     def test_mwu_vs_scipy(self, gene_expression_matrix, group_ids_two):
         """MWU results should match scipy.stats.mannwhitneyu."""
-        from kernel.mwu import mwu_test
+        from biosparse.kernel.mwu import mwu_test
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -116,7 +116,7 @@ class TestMWUTwoGroups:
     
     def test_mwu_log2fc(self, gene_expression_matrix, group_ids_two):
         """Log2FC should be computed correctly."""
-        from kernel.mwu import mwu_test
+        from biosparse.kernel.mwu import mwu_test
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -142,7 +142,7 @@ class TestMWUMultiGroup:
     
     def test_mwu_multi_basic(self, gene_expression_matrix, group_ids_multi):
         """MWU with multiple targets should produce valid results."""
-        from kernel.mwu import mwu_test
+        from biosparse.kernel.mwu import mwu_test
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -160,7 +160,7 @@ class TestMWUMultiGroup:
     
     def test_mwu_multi_vs_scipy(self, gene_expression_matrix, group_ids_multi):
         """Multi-target MWU should match scipy for each target."""
-        from kernel.mwu import mwu_test
+        from biosparse.kernel.mwu import mwu_test
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -193,7 +193,7 @@ class TestCountGroups:
     
     def test_count_groups_basic(self):
         """count_groups should count correctly."""
-        from kernel.mwu import count_groups
+        from biosparse.kernel.mwu import count_groups
         
         group_ids = np.array([0, 0, 1, 1, 1, 2, 2, 2, 2], dtype=np.int32)
         counts = count_groups(group_ids, 3)
@@ -202,7 +202,7 @@ class TestCountGroups:
     
     def test_count_groups_single(self):
         """count_groups with single group."""
-        from kernel.mwu import count_groups
+        from biosparse.kernel.mwu import count_groups
         
         group_ids = np.zeros(100, dtype=np.int32)
         counts = count_groups(group_ids, 1)

@@ -17,7 +17,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 try:
-    from _binding import lib
+    from biosparse._binding import lib
     _BINDING_AVAILABLE = lib is not None
 except Exception:
     _BINDING_AVAILABLE = False
@@ -25,7 +25,7 @@ except Exception:
 _NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
 if _NUMBA_EXT_AVAILABLE:
     try:
-        import _numba
+        import biosparse._numba
     except Exception:
         _NUMBA_EXT_AVAILABLE = False
 
@@ -43,7 +43,7 @@ def csr_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSRF64
+    from biosparse._binding import CSRF64
     
     np.random.seed(42)
     mat = sp.random(20, 15, density=0.2, format='csr', dtype=np.float64)
@@ -58,7 +58,7 @@ def csc_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSCF64
+    from biosparse._binding import CSCF64
     
     np.random.seed(42)
     mat = sp.random(20, 15, density=0.2, format='csc', dtype=np.float64)
@@ -71,7 +71,7 @@ class TestCSRIterator:
     def test_iterate_rows(self, csr_f64):
         """Should iterate over all rows of CSR matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -90,7 +90,7 @@ class TestCSRIterator:
     def test_row_count(self, csr_f64):
         """Should iterate over correct number of rows."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -107,7 +107,7 @@ class TestCSRIterator:
     def test_access_indices(self, csr_f64):
         """Should be able to access column indices in iteration."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -126,7 +126,7 @@ class TestCSRIterator:
     def test_row_dot_product(self, csr_f64):
         """Should be able to compute row-wise operations."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         vec = np.random.rand(scipy_mat.shape[1])
@@ -155,7 +155,7 @@ class TestCSCIterator:
     def test_iterate_columns(self, csc_f64):
         """Should iterate over all columns of CSC matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -174,7 +174,7 @@ class TestCSCIterator:
     def test_col_count(self, csc_f64):
         """Should iterate over correct number of columns."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -191,7 +191,7 @@ class TestCSCIterator:
     def test_access_row_indices(self, csc_f64):
         """Should be able to access row indices in iteration."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -210,7 +210,7 @@ class TestCSCIterator:
     def test_column_sum(self, csc_f64):
         """Should be able to compute column sums."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         

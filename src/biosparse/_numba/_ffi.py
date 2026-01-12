@@ -27,7 +27,7 @@ try:
     _FFI_AVAILABLE = True
 except ImportError:
     try:
-        from _binding._cffi import ffi, lib
+        from biosparse._binding._cffi import ffi, lib
         _FFI_AVAILABLE = True
     except ImportError:
         pass

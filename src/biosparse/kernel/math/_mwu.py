@@ -18,7 +18,7 @@ import numpy as np
 from numba import prange
 from scipy import special
 
-from optim import parallel_jit, assume
+from biosparse.optim import parallel_jit, assume
 
 __all__ = [
     'mwu_p_value_two_sided',

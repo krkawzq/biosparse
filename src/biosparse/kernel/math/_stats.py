@@ -15,7 +15,7 @@ from numba import prange
 from scipy import special
 
 # Use our own optimized JIT decorators
-from optim import parallel_jit, assume, vectorize
+from biosparse.optim import parallel_jit, assume, vectorize
 
 __all__ = [
     # Precise (scipy-based)

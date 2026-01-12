@@ -17,11 +17,11 @@ Uses project's CSR sparse matrix type.
 import numpy as np
 from numba import prange
 
-from optim import parallel_jit, assume, vectorize
-from _binding import CSR
+from biosparse.optim import parallel_jit, assume, vectorize
+from biosparse._binding import CSR
 
 # Import for type hints only
-import _numba  # noqa: F401 - registers CSR/CSC types
+import biosparse._numba  # noqa: F401 - registers CSR/CSC types
 
 __all__ = [
     'mmd_rbf',
@@ -41,6 +41,8 @@ def mmd_rbf(
 ) -> np.ndarray:
     """Compute MMD^2 with RBF kernel: ref (group 0) vs all targets.
     
+    Optimized with prange for parallel row processing.
+    
     Args:
         csr: CSR sparse matrix (features x samples)
         group_ids: Group assignment for each column
@@ -57,7 +59,7 @@ def mmd_rbf(
     assume(n_rows > 0)
     assume(n_targets > 0)
     
-    # Count elements in each group
+    # Count elements in each group (sequential, small)
     n_groups = n_targets + 1
     group_counts = np.zeros(n_groups, dtype=np.int64)
     
@@ -72,11 +74,12 @@ def mmd_rbf(
     # Allocate output
     out_mmd = np.empty((n_rows, n_targets), dtype=np.float64)
     
-    row = 0
-    for values, col_indices in csr:
+    # Parallel row processing
+    for row in prange(n_rows):
+        values, col_indices = csr.row(row)
         nnz = len(values)
         
-        # Partition values by group
+        # Partition values by group (thread-local buffers)
         buf_ref = np.empty(nnz, dtype=np.float64)
         n_ref_nz = 0
         
@@ -101,9 +104,8 @@ def mmd_rbf(
         
         # Unary sum for ref
         sum_ref_unary = 0.0
-        vectorize(8)
-        for i in range(n_ref_nz):
-            val = buf_ref[i]
+        for k in range(n_ref_nz):
+            val = buf_ref[k]
             sum_ref_unary += np.exp(-gamma * val * val)
         
         # Self kernel sum for ref
@@ -114,10 +116,10 @@ def mmd_rbf(
         
         if n_ref_nz > 1:
             off_diag = 0.0
-            for i in range(n_ref_nz - 1):
-                vi = buf_ref[i]
-                for j in range(i + 1, n_ref_nz):
-                    diff = vi - buf_ref[j]
+            for k in range(n_ref_nz - 1):
+                vi = buf_ref[k]
+                for m in range(k + 1, n_ref_nz):
+                    diff = vi - buf_ref[m]
                     off_diag += np.exp(-gamma * diff * diff)
             sum_xx += 2.0 * off_diag
         
@@ -144,9 +146,8 @@ def mmd_rbf(
             
             # Unary sum for target
             sum_tar_unary = 0.0
-            vectorize(8)
-            for i in range(n_tar_nz_t):
-                val = buf_tar_all[t, i]
+            for k in range(n_tar_nz_t):
+                val = buf_tar_all[t, k]
                 sum_tar_unary += np.exp(-gamma * val * val)
             
             # Self kernel sum for target
@@ -157,10 +158,10 @@ def mmd_rbf(
             
             if n_tar_nz_t > 1:
                 off_diag = 0.0
-                for i in range(n_tar_nz_t - 1):
-                    vi = buf_tar_all[t, i]
-                    for j in range(i + 1, n_tar_nz_t):
-                        diff = vi - buf_tar_all[t, j]
+                for k in range(n_tar_nz_t - 1):
+                    vi = buf_tar_all[t, k]
+                    for m in range(k + 1, n_tar_nz_t):
+                        diff = vi - buf_tar_all[t, m]
                         off_diag += np.exp(-gamma * diff * diff)
                 sum_yy += 2.0 * off_diag
             
@@ -173,10 +174,10 @@ def mmd_rbf(
             
             if n_ref_nz > 0 and n_tar_nz_t > 0:
                 cross_sum = 0.0
-                for i in range(n_ref_nz):
-                    xi = buf_ref[i]
-                    for j in range(n_tar_nz_t):
-                        diff = xi - buf_tar_all[t, j]
+                for k in range(n_ref_nz):
+                    xi = buf_ref[k]
+                    for m in range(n_tar_nz_t):
+                        diff = xi - buf_tar_all[t, m]
                         cross_sum += np.exp(-gamma * diff * diff)
                 sum_xy += cross_sum
             
@@ -184,7 +185,5 @@ def mmd_rbf(
             mmd2 = sum_xx * inv_Nx2 + sum_yy * inv_Ny2 - 2.0 * sum_xy * inv_NxNy
             
             out_mmd[row, t] = mmd2 if mmd2 > 0.0 else 0.0
-        
-        row += 1
     
     return out_mmd

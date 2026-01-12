@@ -5,7 +5,7 @@ import numpy as np
 
 pytest.importorskip("numba")
 
-from optim import optimized_jit, vectorize, unroll, interleave, distribute, pipeline
+from biosparse.optim import optimized_jit, vectorize, unroll, interleave, distribute, pipeline
 
 
 class TestVectorize:

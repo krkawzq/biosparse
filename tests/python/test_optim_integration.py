@@ -5,7 +5,7 @@ import numpy as np
 
 pytest.importorskip("numba")
 
-from optim import (
+from biosparse.optim import (
     optimized_jit, fast_jit,
     assume, likely,
     vectorize, unroll,

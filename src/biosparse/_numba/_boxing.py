@@ -160,7 +160,7 @@ def box_csr(typ, val, c):
     
     # 3. Import module and class
     # Use insert_const_string to create LLVM string constant
-    mod_name_ptr = c.context.insert_const_string(c.builder.module, "_binding._sparse")
+    mod_name_ptr = c.context.insert_const_string(c.builder.module, "biosparse._binding._sparse")
     mod_obj = c.pyapi.import_module(mod_name_ptr)
     
     cls = c.pyapi.object_getattr_string(mod_obj, cls_name)
@@ -289,7 +289,7 @@ def box_csc(typ, val, c):
         cls_name = "CSCF64"
     
     # 3. Import module and class
-    mod_name_ptr = c.context.insert_const_string(c.builder.module, "_binding._sparse")
+    mod_name_ptr = c.context.insert_const_string(c.builder.module, "biosparse._binding._sparse")
     mod_obj = c.pyapi.import_module(mod_name_ptr)
     
     cls = c.pyapi.object_getattr_string(mod_obj, cls_name)

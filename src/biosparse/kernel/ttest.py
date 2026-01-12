@@ -16,11 +16,11 @@ import numpy as np
 from numba import prange
 from scipy import special
 
-from optim import parallel_jit, assume, vectorize
-from _binding import CSR
+from biosparse.optim import parallel_jit, assume, vectorize
+from biosparse._binding import CSR
 
 # Import for type hints only
-import _numba  # noqa: F401 - registers CSR/CSC types
+import biosparse._numba  # noqa: F401 - registers CSR/CSC types
 
 __all__ = [
     'ttest',
@@ -41,6 +41,8 @@ def ttest(
     use_welch: bool = True
 ) -> tuple:
     """Perform t-test: reference (group 0) vs all targets (groups 1..n_targets).
+    
+    Optimized with prange for parallel row processing.
     
     Args:
         csr: CSR sparse matrix (CSRF32 or CSRF64), genes x cells
@@ -63,7 +65,7 @@ def ttest(
     assume(n_rows > 0)
     assume(n_targets > 0)
     
-    # Count elements in each group
+    # Count elements in each group (sequential, small)
     n_groups = n_targets + 1
     group_counts = np.zeros(n_groups, dtype=np.int64)
     
@@ -83,11 +85,12 @@ def ttest(
     out_p_values = np.empty((n_rows, n_targets), dtype=np.float64)
     out_log2_fc = np.empty((n_rows, n_targets), dtype=np.float64)
     
-    row = 0
-    for values, col_indices in csr:
+    # Parallel row processing
+    for row in prange(n_rows):
+        values, col_indices = csr.row(row)
         nnz = len(values)
         
-        # Accumulate sums for each group
+        # Accumulate sums for each group (thread-local)
         sum_ref = 0.0
         sum_sq_ref = 0.0
         n_ref_nz = 0
@@ -213,8 +216,6 @@ def ttest(
             
             out_t_stats[row, t] = t_stat
             out_p_values[row, t] = p_val
-        
-        row += 1
     
     return out_t_stats, out_p_values, out_log2_fc
 

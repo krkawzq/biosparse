@@ -20,5 +20,5 @@ dev = [
     "pytest>=9.0.2",
 ]
 
-[tool.setuptools.package-dir]
-biosparse = "src/python"
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
 
-from _binding._sparse import CSRF64, CSCF64
+from biosparse._binding._sparse import CSRF64, CSCF64
 
 
 # Create a simple 3x4 CSR matrix:

@@ -17,7 +17,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 try:
-    from _binding import lib
+    from biosparse._binding import lib
     _BINDING_AVAILABLE = lib is not None
 except Exception:
     _BINDING_AVAILABLE = False
@@ -25,7 +25,7 @@ except Exception:
 _NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
 if _NUMBA_EXT_AVAILABLE:
     try:
-        import _numba
+        import biosparse._numba
     except Exception:
         _NUMBA_EXT_AVAILABLE = False
 
@@ -43,7 +43,7 @@ def csr_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSRF64
+    from biosparse._binding import CSRF64
     
     np.random.seed(42)
     mat = sp.random(100, 50, density=0.1, format='csr', dtype=np.float64)
@@ -58,7 +58,7 @@ def csc_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSCF64
+    from biosparse._binding import CSCF64
     
     np.random.seed(42)
     mat = sp.random(100, 50, density=0.1, format='csc', dtype=np.float64)
@@ -71,7 +71,7 @@ class TestCSRProperties:
     def test_shape(self, csr_f64):
         """csr.shape should return (nrows, ncols)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -85,7 +85,7 @@ class TestCSRProperties:
     def test_density(self, csr_f64):
         """csr.density should return nnz / (nrows * ncols)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -100,7 +100,7 @@ class TestCSRProperties:
     def test_sparsity(self, csr_f64):
         """csr.sparsity should return 1 - density."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -115,7 +115,7 @@ class TestCSRProperties:
     def test_is_empty(self, csr_f64):
         """csr.is_empty should return False for non-empty matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, _ = csr_f64
         
@@ -128,7 +128,7 @@ class TestCSRProperties:
     def test_is_zero(self, csr_f64):
         """csr.is_zero should return False for matrix with non-zeros."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, _ = csr_f64
         
@@ -141,7 +141,7 @@ class TestCSRProperties:
     def test_len(self, csr_f64):
         """len(csr) should return nrows."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -158,7 +158,7 @@ class TestCSCProperties:
     def test_shape(self, csc_f64):
         """csc.shape should return (nrows, ncols)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -172,7 +172,7 @@ class TestCSCProperties:
     def test_density(self, csc_f64):
         """csc.density should return nnz / (nrows * ncols)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -187,7 +187,7 @@ class TestCSCProperties:
     def test_sparsity(self, csc_f64):
         """csc.sparsity should return 1 - density."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -202,7 +202,7 @@ class TestCSCProperties:
     def test_len(self, csc_f64):
         """len(csc) should return ncols."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         

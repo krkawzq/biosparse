@@ -8,7 +8,7 @@ import warnings
 pytest.importorskip("numba")
 
 from numba import njit
-from optim import optimized_jit, fast_jit, parallel_jit, assume, vectorize
+from biosparse.optim import optimized_jit, fast_jit, parallel_jit, assume, vectorize
 
 
 class TestOptimizedJit:
@@ -56,7 +56,7 @@ class TestOptimizedJit:
     
     def test_returns_correct_type(self, arr):
         """optimized_jit should return OptimizedDispatcher."""
-        from optim import OptimizedDispatcher
+        from biosparse.optim import OptimizedDispatcher
         
         @optimized_jit
         def my_func(arr):

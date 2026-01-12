@@ -5,7 +5,7 @@ import numpy as np
 
 pytest.importorskip("numba")
 
-from optim import IRProcessor, optimized_jit, vectorize, get_modified_ir, HintType
+from biosparse.optim import IRProcessor, optimized_jit, vectorize, get_modified_ir, HintType
 
 
 class TestMarkerScanning:

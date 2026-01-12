@@ -11,8 +11,8 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 try:
-    from _binding import CSRF64
-    import _numba
+    from biosparse._binding import CSRF64
+    import biosparse._numba
     BINDING_AVAILABLE = True
 except Exception:
     BINDING_AVAILABLE = False
@@ -40,7 +40,7 @@ class TestComputeMoments:
     
     def test_compute_moments_basic(self, gene_expression_matrix):
         """compute_moments should return valid means and variances."""
-        from kernel.hvg import compute_moments
+        from biosparse.kernel.hvg import compute_moments
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -58,7 +58,7 @@ class TestComputeMoments:
     
     def test_compute_moments_vs_numpy(self, gene_expression_matrix):
         """compute_moments should match numpy computation."""
-        from kernel.hvg import compute_moments
+        from biosparse.kernel.hvg import compute_moments
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -78,7 +78,7 @@ class TestComputeMoments:
     
     def test_compute_moments_ddof0(self, gene_expression_matrix):
         """compute_moments with ddof=0 should match population variance."""
-        from kernel.hvg import compute_moments
+        from biosparse.kernel.hvg import compute_moments
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -98,7 +98,7 @@ class TestComputeDispersion:
     
     def test_compute_dispersion_basic(self):
         """compute_dispersion should compute var/mean correctly."""
-        from kernel.hvg import compute_dispersion
+        from biosparse.kernel.hvg import compute_dispersion
         
         means = np.array([1.0, 2.0, 0.5, 0.0, 10.0])
         vars = np.array([2.0, 8.0, 0.5, 1.0, 50.0])
@@ -112,7 +112,7 @@ class TestComputeDispersion:
     
     def test_compute_dispersion_zero_mean(self):
         """compute_dispersion should return 0 for zero mean."""
-        from kernel.hvg import compute_dispersion
+        from biosparse.kernel.hvg import compute_dispersion
         
         means = np.array([0.0, 1e-15, 1.0])
         vars = np.array([1.0, 1.0, 1.0])
@@ -130,7 +130,7 @@ class TestNormalizeDispersion:
     
     def test_normalize_dispersion_basic(self):
         """normalize_dispersion should z-score normalize."""
-        from kernel.hvg import normalize_dispersion
+        from biosparse.kernel.hvg import normalize_dispersion
         
         dispersions = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         means = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
@@ -146,7 +146,7 @@ class TestNormalizeDispersion:
     
     def test_normalize_dispersion_filter(self):
         """normalize_dispersion should filter by mean range."""
-        from kernel.hvg import normalize_dispersion
+        from biosparse.kernel.hvg import normalize_dispersion
         
         dispersions = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         means = np.array([0.1, 0.5, 1.0, 2.0, 10.0])  # First and last outside range
@@ -168,7 +168,7 @@ class TestSelectTopK:
     
     def test_select_top_k_basic(self):
         """select_top_k should select correct indices."""
-        from kernel.hvg import select_top_k
+        from biosparse.kernel.hvg import select_top_k
         
         scores = np.array([1.0, 5.0, 3.0, 7.0, 2.0])
         
@@ -185,7 +185,7 @@ class TestSelectTopK:
     
     def test_select_top_k_all(self):
         """select_top_k with k=n should select all."""
-        from kernel.hvg import select_top_k
+        from biosparse.kernel.hvg import select_top_k
         
         scores = np.array([1.0, 5.0, 3.0])
         
@@ -200,7 +200,7 @@ class TestSelectHVGByDispersion:
     
     def test_select_hvg_basic(self, gene_expression_matrix):
         """select_hvg_by_dispersion should return valid results."""
-        from kernel.hvg import select_hvg_by_dispersion
+        from biosparse.kernel.hvg import select_hvg_by_dispersion
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -220,7 +220,7 @@ class TestSelectHVGByDispersion:
     
     def test_select_hvg_dispersion_order(self, gene_expression_matrix):
         """Selected genes should have highest dispersions."""
-        from kernel.hvg import select_hvg_by_dispersion
+        from biosparse.kernel.hvg import select_hvg_by_dispersion
         
         csr, scipy_mat = gene_expression_matrix
         

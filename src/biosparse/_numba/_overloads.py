@@ -13,10 +13,7 @@ from ._types import CSRType, CSCType
 from ._ffi import _make_array_from_ptr_f64, _make_array_from_ptr_f32, _make_array_from_ptr_i64
 
 # Import optimization intrinsics
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from optim import assume, likely, unlikely
+from biosparse.optim import assume, likely, unlikely
 
 
 # =============================================================================

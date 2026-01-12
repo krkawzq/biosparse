@@ -17,7 +17,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 try:
-    from _binding import lib
+    from biosparse._binding import lib
     _BINDING_AVAILABLE = lib is not None
 except Exception:
     _BINDING_AVAILABLE = False
@@ -25,7 +25,7 @@ except Exception:
 _NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
 if _NUMBA_EXT_AVAILABLE:
     try:
-        import _numba
+        import biosparse._numba
     except Exception:
         _NUMBA_EXT_AVAILABLE = False
 
@@ -43,7 +43,7 @@ def csr_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSRF64
+    from biosparse._binding import CSRF64
     
     np.random.seed(42)
     mat = sp.random(50, 40, density=0.15, format='csr', dtype=np.float64)
@@ -58,7 +58,7 @@ def csc_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSCF64
+    from biosparse._binding import CSCF64
     
     np.random.seed(42)
     mat = sp.random(50, 40, density=0.15, format='csc', dtype=np.float64)
@@ -71,7 +71,7 @@ class TestCSRSlicing:
     def test_slice_rows(self, csr_f64):
         """csr.slice_rows(start, end) should return sub-matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -89,7 +89,7 @@ class TestCSRSlicing:
     def test_slice_cols(self, csr_f64):
         """csr.slice_cols(start, end) should return sub-matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -107,7 +107,7 @@ class TestCSRSlicing:
     def test_getitem_row_slice(self, csr_f64):
         """csr[10:20] should slice rows."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -123,7 +123,7 @@ class TestCSRSlicing:
     def test_getitem_element(self, csr_f64):
         """csr[i, j] should return element value."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -141,7 +141,7 @@ class TestCSRSlicing:
     def test_getitem_both_slices(self, csr_f64):
         """csr[10:20, 5:15] should slice both dimensions."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -158,7 +158,7 @@ class TestCSRSlicing:
     def test_slice_and_sum(self, csr_f64):
         """Sliced matrix should contain correct values."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -182,7 +182,7 @@ class TestCSCSlicing:
     def test_slice_rows(self, csc_f64):
         """csc.slice_rows(start, end) should return sub-matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -200,7 +200,7 @@ class TestCSCSlicing:
     def test_slice_cols(self, csc_f64):
         """csc.slice_cols(start, end) should return sub-matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -218,7 +218,7 @@ class TestCSCSlicing:
     def test_getitem_element(self, csc_f64):
         """csc[i, j] should return element value."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -235,7 +235,7 @@ class TestCSCSlicing:
     def test_slice_and_iterate(self, csc_f64):
         """Sliced CSC should be iterable."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         

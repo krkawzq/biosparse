@@ -13,11 +13,11 @@ Uses project's CSR sparse matrix type.
 import numpy as np
 from numba import prange
 
-from optim import parallel_jit, assume, vectorize
-from _binding import CSR
+from biosparse.optim import parallel_jit, assume, vectorize
+from biosparse._binding import CSR
 
 # Import for type hints only
-import _numba  # noqa: F401 - registers CSR/CSC types
+import biosparse._numba  # noqa: F401 - registers CSR/CSC types
 
 __all__ = [
     'compute_dispersion',
@@ -179,6 +179,8 @@ def select_top_k(scores: np.ndarray, k: int) -> tuple:
 def compute_moments(csr: CSR, ddof: int) -> tuple:
     """Compute per-row mean and variance for CSR sparse matrix.
     
+    Optimized with prange for parallel row processing.
+    
     Args:
         csr: CSR sparse matrix (CSRF32 or CSRF64)
         ddof: Delta degrees of freedom for variance
@@ -195,13 +197,14 @@ def compute_moments(csr: CSR, ddof: int) -> tuple:
     out_means = np.empty(n_rows, dtype=np.float64)
     out_vars = np.empty(n_rows, dtype=np.float64)
     
-    row_idx = 0
-    for values, indices in csr:
-        row_sum = 0.0
-        row_sq_sum = 0.0
+    # Parallel row processing using direct row access
+    for row_idx in prange(n_rows):
+        values, _ = csr.row(row_idx)
         n_nnz = len(values)
         
-        vectorize(8)
+        row_sum = 0.0
+        row_sq_sum = 0.0
+        
         for j in range(n_nnz):
             val = values[j]
             row_sum += val
@@ -216,7 +219,6 @@ def compute_moments(csr: CSR, ddof: int) -> tuple:
         
         out_means[row_idx] = mu
         out_vars[row_idx] = var
-        row_idx += 1
     
     return out_means, out_vars
 
@@ -224,6 +226,8 @@ def compute_moments(csr: CSR, ddof: int) -> tuple:
 @parallel_jit
 def compute_clipped_moments(csr: CSR, clip_vals: np.ndarray) -> tuple:
     """Compute per-row mean and variance with clipping for VST.
+    
+    Optimized with prange for parallel row processing.
     
     Args:
         csr: CSR sparse matrix (CSRF32 or CSRF64)
@@ -242,14 +246,15 @@ def compute_clipped_moments(csr: CSR, clip_vals: np.ndarray) -> tuple:
     out_means = np.empty(n_rows, dtype=np.float64)
     out_vars = np.empty(n_rows, dtype=np.float64)
     
-    row_idx = 0
-    for values, indices in csr:
+    # Parallel row processing
+    for row_idx in prange(n_rows):
+        values, _ = csr.row(row_idx)
         clip = clip_vals[row_idx]
-        row_sum = 0.0
-        row_sq_sum = 0.0
         n_nnz = len(values)
         
-        vectorize(8)
+        row_sum = 0.0
+        row_sq_sum = 0.0
+        
         for j in range(n_nnz):
             val = values[j]
             if val > clip:
@@ -266,7 +271,6 @@ def compute_clipped_moments(csr: CSR, clip_vals: np.ndarray) -> tuple:
         
         out_means[row_idx] = mu
         out_vars[row_idx] = var
-        row_idx += 1
     
     return out_means, out_vars
 
@@ -278,6 +282,8 @@ def compute_clipped_moments(csr: CSR, clip_vals: np.ndarray) -> tuple:
 @parallel_jit
 def select_hvg_by_dispersion(csr: CSR, n_top: int) -> tuple:
     """Select highly variable genes by dispersion.
+    
+    Optimized with prange for parallel dispersion computation.
     
     Args:
         csr: CSR sparse matrix (genes x cells)
@@ -296,14 +302,14 @@ def select_hvg_by_dispersion(csr: CSR, n_top: int) -> tuple:
     
     out_dispersions = np.empty(n_rows, dtype=np.float64)
     
-    # Compute dispersions
-    row_idx = 0
-    for values, indices in csr:
-        row_sum = 0.0
-        row_sq_sum = 0.0
+    # Parallel dispersion computation
+    for row_idx in prange(n_rows):
+        values, _ = csr.row(row_idx)
         n_nnz = len(values)
         
-        vectorize(8)
+        row_sum = 0.0
+        row_sq_sum = 0.0
+        
         for j in range(n_nnz):
             val = values[j]
             row_sum += val
@@ -318,10 +324,8 @@ def select_hvg_by_dispersion(csr: CSR, n_top: int) -> tuple:
             out_dispersions[row_idx] = var / mu
         else:
             out_dispersions[row_idx] = 0.0
-        
-        row_idx += 1
     
-    # Select top k (sequential)
+    # Select top k using partial sort (sequential, but efficient)
     out_indices = np.empty(n_top, dtype=np.int64)
     out_mask = np.zeros(n_rows, dtype=np.uint8)
     

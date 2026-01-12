@@ -7,7 +7,7 @@ import numpy as np
 pytestmark = pytest.mark.binding
 
 try:
-    from _binding import CSRF64, CSCF64, lib
+    from biosparse._binding import CSRF64, CSCF64, lib
     if lib is None:
         pytest.skip("Rust FFI bindings not loaded", allow_module_level=True)
 except (ImportError, OSError):

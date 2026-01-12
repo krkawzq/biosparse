@@ -5,9 +5,13 @@ import scipy.sparse as sp
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
 
-from _binding._sparse import CSRF64, CSCF64, CSRF32, CSCF32
+# Add src/python to path
+_src_python = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'python'))
+if _src_python not in sys.path:
+    sys.path.insert(0, _src_python)
+
+from biosparse._binding._sparse import CSRF64, CSCF64, CSRF32, CSCF32
 
 
 def test_csr_transpose_basic():
@@ -187,7 +191,7 @@ def test_transpose_empty():
 def test_transpose_jit():
     """Test transpose in JIT-compiled code."""
     from numba import njit
-    import _numba  # Import numba integration to register types
+    import biosparse._numba  # Import numba integration to register types
     
     @njit
     def transpose_in_jit(csr):
@@ -222,7 +226,7 @@ def test_transpose_jit():
 def test_transpose_jit_double():
     """Test double transpose in JIT."""
     from numba import njit
-    import _numba
+    import biosparse._numba
     
     @njit
     def double_transpose(csr):

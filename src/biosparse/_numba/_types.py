@@ -12,7 +12,7 @@ from numba.extending import typeof_impl
 try:
     from .._binding._sparse import CSR, CSC, CSRF32, CSRF64, CSCF32, CSCF64
 except ImportError:
-    from _binding._sparse import CSR, CSC, CSRF32, CSRF64, CSCF32, CSCF64
+    from biosparse._binding._sparse import CSR, CSC, CSRF32, CSRF64, CSCF32, CSCF64
 
 
 # =============================================================================

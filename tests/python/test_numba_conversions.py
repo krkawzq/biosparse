@@ -17,7 +17,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 try:
-    from _binding import lib
+    from biosparse._binding import lib
     _BINDING_AVAILABLE = lib is not None
 except Exception:
     _BINDING_AVAILABLE = False
@@ -25,7 +25,7 @@ except Exception:
 _NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
 if _NUMBA_EXT_AVAILABLE:
     try:
-        import _numba
+        import biosparse._numba
     except Exception:
         _NUMBA_EXT_AVAILABLE = False
 
@@ -43,7 +43,7 @@ def csr_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSRF64
+    from biosparse._binding import CSRF64
     
     np.random.seed(42)
     mat = sp.random(30, 25, density=0.2, format='csr', dtype=np.float64)
@@ -58,7 +58,7 @@ def csc_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSCF64
+    from biosparse._binding import CSCF64
     
     np.random.seed(42)
     mat = sp.random(30, 25, density=0.2, format='csc', dtype=np.float64)
@@ -71,7 +71,7 @@ class TestCSRConversions:
     def test_to_dense(self, csr_f64):
         """csr.to_dense() should return correct dense array."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -86,7 +86,7 @@ class TestCSRConversions:
     def test_to_coo(self, csr_f64):
         """csr.to_coo() should return (rows, cols, data) arrays."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -109,7 +109,7 @@ class TestCSRConversions:
     def test_to_csc(self, csr_f64):
         """csr.to_csc() should return equivalent CSC matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -126,7 +126,7 @@ class TestCSRConversions:
     def test_to_csc_values(self, csr_f64):
         """csr.to_csc() should preserve values."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -146,7 +146,7 @@ class TestCSRConversions:
     def test_clone(self, csr_f64):
         """csr.clone() should create independent copy."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -163,7 +163,7 @@ class TestCSRConversions:
     def test_clone_values(self, csr_f64):
         """csr.clone() should preserve all values."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -187,7 +187,7 @@ class TestCSCConversions:
     def test_to_dense(self, csc_f64):
         """csc.to_dense() should return correct dense array."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -202,7 +202,7 @@ class TestCSCConversions:
     def test_to_coo(self, csc_f64):
         """csc.to_coo() should return (rows, cols, data) arrays."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -224,7 +224,7 @@ class TestCSCConversions:
     def test_to_csr(self, csc_f64):
         """csc.to_csr() should return equivalent CSR matrix."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -241,7 +241,7 @@ class TestCSCConversions:
     def test_to_csr_values(self, csc_f64):
         """csc.to_csr() should preserve values."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -261,7 +261,7 @@ class TestCSCConversions:
     def test_clone(self, csc_f64):
         """csc.clone() should create independent copy."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -282,7 +282,7 @@ class TestRoundTrip:
     def test_csr_to_csc_to_csr(self, csr_f64):
         """CSR -> CSC -> CSR should preserve data."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -299,7 +299,7 @@ class TestRoundTrip:
     def test_csc_to_csr_to_csc(self, csc_f64):
         """CSC -> CSR -> CSC should preserve data."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         

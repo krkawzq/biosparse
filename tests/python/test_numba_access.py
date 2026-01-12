@@ -17,7 +17,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 try:
-    from _binding import lib
+    from biosparse._binding import lib
     _BINDING_AVAILABLE = lib is not None
 except Exception:
     _BINDING_AVAILABLE = False
@@ -25,7 +25,7 @@ except Exception:
 _NUMBA_EXT_AVAILABLE = _NUMBA_AVAILABLE and _BINDING_AVAILABLE
 if _NUMBA_EXT_AVAILABLE:
     try:
-        import _numba
+        import biosparse._numba
     except Exception:
         _NUMBA_EXT_AVAILABLE = False
 
@@ -43,7 +43,7 @@ def csr_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSRF64
+    from biosparse._binding import CSRF64
     
     np.random.seed(42)
     mat = sp.random(100, 50, density=0.1, format='csr', dtype=np.float64)
@@ -58,7 +58,7 @@ def csc_f64():
         pytest.skip("Rust FFI bindings not available")
     
     import scipy.sparse as sp
-    from _binding import CSCF64
+    from biosparse._binding import CSCF64
     
     np.random.seed(42)
     mat = sp.random(100, 50, density=0.1, format='csc', dtype=np.float64)
@@ -71,7 +71,7 @@ class TestCSRRowAccess:
     def test_row_len(self, csr_f64):
         """csr.row_len(i) should return number of non-zeros in row i."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -87,7 +87,7 @@ class TestCSRRowAccess:
     def test_row_to_numpy(self, csr_f64):
         """csr.row_to_numpy(i) should return (values, indices) for row i."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -110,7 +110,7 @@ class TestCSRRowAccess:
     def test_row(self, csr_f64):
         """csr.row(i) should be equivalent to row_to_numpy(i)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -129,7 +129,7 @@ class TestCSRRowAccess:
     def test_get_existing_element(self, csr_f64):
         """csr.get(i, j) should return the value at (i, j)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -149,7 +149,7 @@ class TestCSRRowAccess:
     def test_get_zero_element(self, csr_f64):
         """csr.get(i, j) should return 0.0 for zero elements."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, scipy_mat = csr_f64
         
@@ -168,7 +168,7 @@ class TestCSRRowAccess:
     def test_get_with_default(self, csr_f64):
         """csr.get(i, j, default) should return default for out-of-bounds."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csr, _ = csr_f64
         
@@ -187,7 +187,7 @@ class TestCSCColumnAccess:
     def test_col_len(self, csc_f64):
         """csc.col_len(j) should return number of non-zeros in column j."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -202,7 +202,7 @@ class TestCSCColumnAccess:
     def test_col_to_numpy(self, csc_f64):
         """csc.col_to_numpy(j) should return (values, indices) for column j."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -225,7 +225,7 @@ class TestCSCColumnAccess:
     def test_col(self, csc_f64):
         """csc.col(j) should be equivalent to col_to_numpy(j)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         
@@ -244,7 +244,7 @@ class TestCSCColumnAccess:
     def test_get_element(self, csc_f64):
         """csc.get(i, j) should return the value at (i, j)."""
         from numba import njit
-        import _numba  # noqa: F401
+        import biosparse._numba  # noqa: F401
         
         csc, scipy_mat = csc_f64
         

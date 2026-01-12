@@ -11,8 +11,8 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 try:
-    from _binding import CSRF64
-    import _numba
+    from biosparse._binding import CSRF64
+    import biosparse._numba
     BINDING_AVAILABLE = True
 except Exception:
     BINDING_AVAILABLE = False
@@ -88,7 +88,7 @@ class TestMMDRBF:
     
     def test_mmd_basic(self, feature_matrix, group_ids_two):
         """MMD should produce valid results."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         csr, scipy_mat = feature_matrix
         
@@ -103,7 +103,7 @@ class TestMMDRBF:
     
     def test_mmd_vs_reference(self, feature_matrix, group_ids_two):
         """MMD should match reference implementation."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         csr, scipy_mat = feature_matrix
         dense = scipy_mat.toarray()
@@ -124,7 +124,7 @@ class TestMMDRBF:
     
     def test_mmd_same_distribution(self):
         """MMD between identical distributions should be ~0."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         import scipy.sparse as sp
         
@@ -146,7 +146,7 @@ class TestMMDRBF:
     
     def test_mmd_different_distributions(self):
         """MMD between different distributions should be large."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         import scipy.sparse as sp
         
@@ -174,7 +174,7 @@ class TestMMDMultiGroup:
     
     def test_mmd_multi_basic(self, feature_matrix, group_ids_multi):
         """Multi-target MMD should produce valid results."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         csr, scipy_mat = feature_matrix
         
@@ -189,7 +189,7 @@ class TestMMDMultiGroup:
     
     def test_mmd_multi_vs_reference(self, feature_matrix, group_ids_multi):
         """Multi-target MMD should match reference for each target."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         csr, scipy_mat = feature_matrix
         dense = scipy_mat.toarray()
@@ -216,7 +216,7 @@ class TestMMDGammaParameter:
     
     def test_mmd_gamma_effect(self, feature_matrix, group_ids_two):
         """Different gamma values should produce different results."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         csr, scipy_mat = feature_matrix
         
@@ -228,7 +228,7 @@ class TestMMDGammaParameter:
     
     def test_mmd_gamma_zero_like(self, feature_matrix, group_ids_two):
         """Very small gamma should make all kernels ~1, MMD ~0."""
-        from kernel.mmd import mmd_rbf
+        from biosparse.kernel.mmd import mmd_rbf
         
         csr, scipy_mat = feature_matrix
         

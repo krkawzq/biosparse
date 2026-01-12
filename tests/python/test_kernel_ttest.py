@@ -11,8 +11,8 @@ except ImportError:
     SCIPY_AVAILABLE = False
 
 try:
-    from _binding import CSRF64
-    import _numba
+    from biosparse._binding import CSRF64
+    import biosparse._numba
     BINDING_AVAILABLE = True
 except Exception:
     BINDING_AVAILABLE = False
@@ -58,7 +58,7 @@ class TestWelchTTest:
     
     def test_welch_basic(self, gene_expression_matrix, group_ids_two):
         """Welch's t-test should produce valid results."""
-        from kernel.ttest import welch_ttest
+        from biosparse.kernel.ttest import welch_ttest
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -75,7 +75,7 @@ class TestWelchTTest:
     
     def test_welch_vs_scipy(self, gene_expression_matrix, group_ids_two):
         """Welch's t-test should match scipy.stats.ttest_ind."""
-        from kernel.ttest import welch_ttest
+        from biosparse.kernel.ttest import welch_ttest
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -110,7 +110,7 @@ class TestWelchTTest:
     
     def test_welch_log2fc(self, gene_expression_matrix, group_ids_two):
         """Log2FC should be computed correctly."""
-        from kernel.ttest import welch_ttest
+        from biosparse.kernel.ttest import welch_ttest
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -136,7 +136,7 @@ class TestStudentTTest:
     
     def test_student_basic(self, gene_expression_matrix, group_ids_two):
         """Student's t-test should produce valid results."""
-        from kernel.ttest import student_ttest
+        from biosparse.kernel.ttest import student_ttest
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -153,7 +153,7 @@ class TestStudentTTest:
     
     def test_student_vs_scipy(self, gene_expression_matrix, group_ids_two):
         """Student's t-test should match scipy.stats.ttest_ind with equal_var=True."""
-        from kernel.ttest import student_ttest
+        from biosparse.kernel.ttest import student_ttest
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -192,7 +192,7 @@ class TestTTestMultiGroup:
     
     def test_welch_multi_basic(self, gene_expression_matrix, group_ids_multi):
         """Multi-target Welch's t-test should produce valid results."""
-        from kernel.ttest import welch_ttest
+        from biosparse.kernel.ttest import welch_ttest
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -209,7 +209,7 @@ class TestTTestMultiGroup:
     
     def test_welch_multi_vs_scipy(self, gene_expression_matrix, group_ids_multi):
         """Multi-target Welch should match scipy for each target."""
-        from kernel.ttest import welch_ttest
+        from biosparse.kernel.ttest import welch_ttest
         
         csr, scipy_mat = gene_expression_matrix
         dense = scipy_mat.toarray()
@@ -247,7 +247,7 @@ class TestTTestInterface:
     
     def test_ttest_welch_flag(self, gene_expression_matrix, group_ids_two):
         """ttest with use_welch=True should match welch_ttest."""
-        from kernel.ttest import ttest, welch_ttest
+        from biosparse.kernel.ttest import ttest, welch_ttest
         
         csr, scipy_mat = gene_expression_matrix
         
@@ -260,7 +260,7 @@ class TestTTestInterface:
     
     def test_ttest_student_flag(self, gene_expression_matrix, group_ids_two):
         """ttest with use_welch=False should match student_ttest."""
-        from kernel.ttest import ttest, student_ttest
+        from biosparse.kernel.ttest import ttest, student_ttest
         
         csr, scipy_mat = gene_expression_matrix
         
