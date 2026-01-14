@@ -60,7 +60,7 @@ def verify_library(plat: str) -> Path:
             f"  cargo build --release"
         )
     
-    print(f"✓ Found native library: {lib_path}")
+    print(f"[OK] Found native library: {lib_path}")
     return lib_path
 
 
@@ -69,7 +69,7 @@ def build_wheel(plat: str):
     version = get_version()
     lib_path = verify_library(plat)
     
-    print(f"\n📦 Building wheel for {plat}")
+    print(f"\n[BUILD] Building wheel for {plat}")
     print(f"   Version: {version}")
     print(f"   Library: {lib_path}")
     
@@ -120,7 +120,7 @@ def build_wheel(plat: str):
         # Copy and rename
         shutil.copy2(src_wheel, dst_wheel)
         
-        print(f"\n✓ Built wheel: {dst_wheel}")
+        print(f"\n[OK] Built wheel: {dst_wheel}")
         print(f"  Size: {dst_wheel.stat().st_size / 1024:.1f} KB")
     
     return dst_wheel
@@ -148,7 +148,7 @@ def main():
         else:
             build_wheel(args.plat)
     except Exception as e:
-        print(f"\n❌ Error: {e}", file=sys.stderr)
+        print(f"\n[ERROR] {e}", file=sys.stderr)
         sys.exit(1)
 
 
