@@ -3,9 +3,9 @@
 //! 利用 Span storage 的引用计数特性实现高效转置。
 //! 通过 clone span 来共享底层数据，避免数据拷贝。
 
-use crate::sparse::{CSC, CSR, SparseIndex};
-use crate::span::{Span, SpanFlags};
 use crate::convert::{AllocStrategy, ConvertError};
+use crate::span::{Span, SpanFlags};
+use crate::sparse::{SparseIndex, CSC, CSR};
 use rayon::prelude::*;
 use std::cell::Cell;
 use std::ptr::NonNull;
@@ -113,7 +113,7 @@ pub fn csc_transpose_from_csr<
 
             for k in 0..row_values.len() {
                 *values_ptr.add(k) = row_values[k];
-                *indices_ptr.add(k) = row_indices[k];  // CSR col index becomes CSC row index
+                *indices_ptr.add(k) = row_indices[k]; // CSR col index becomes CSC row index
             }
         }
     });
@@ -245,7 +245,7 @@ pub fn csr_transpose_from_csc<
 
             for k in 0..col_values.len() {
                 *values_ptr.add(k) = col_values[k];
-                *indices_ptr.add(k) = col_indices[k];  // CSC row index becomes CSR col index
+                *indices_ptr.add(k) = col_indices[k]; // CSC row index becomes CSR col index
             }
         }
     });

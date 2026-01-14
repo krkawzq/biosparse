@@ -217,18 +217,13 @@ jobs:
           draft: true
 
   # ===========================================================================
-  # Publish to PyPI (manual trigger only)
+  # Publish to PyPI
   # ===========================================================================
   publish-pypi:
     name: Publish to PyPI
     needs: release
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    environment:
-      name: pypi
-      url: https://pypi.org/project/biosparse/
-    permissions:
-      id-token: write
     
     steps:
       - name: Download all wheels
@@ -246,3 +241,5 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
