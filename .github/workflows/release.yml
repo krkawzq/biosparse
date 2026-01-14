@@ -32,12 +32,6 @@ jobs:
             lib_name: biosparse.dll
             artifact_name: windows-x64
           
-          # macOS Intel
-          - os: macos-13
-            target: x86_64-apple-darwin
-            lib_name: libbiosparse.dylib
-            artifact_name: macos-x64
-          
           # macOS ARM (Apple Silicon)
           - os: macos-14
             target: aarch64-apple-darwin
@@ -96,6 +90,7 @@ jobs:
   build-wheels:
     name: Build wheel (${{ matrix.artifact_name }})
     needs: build-rust
+    if: always() && !cancelled()
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -105,11 +100,6 @@ jobs:
             artifact_name: windows-x64
             lib_name: biosparse.dll
             wheel_plat: win_amd64
-          
-          - os: macos-13
-            artifact_name: macos-x64
-            lib_name: libbiosparse.dylib
-            wheel_plat: macosx_10_9_x86_64
           
           - os: macos-14
             artifact_name: macos-arm64
@@ -188,6 +178,7 @@ jobs:
   release:
     name: Create Release
     needs: [build-wheels, build-sdist]
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
     permissions:
       contents: write
